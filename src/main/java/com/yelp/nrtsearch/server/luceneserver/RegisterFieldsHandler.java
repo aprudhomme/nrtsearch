@@ -18,7 +18,6 @@ package com.yelp.nrtsearch.server.luceneserver;
 import static com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator.hasAnalyzer;
 import static com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator.isAnalyzerDefined;
 
-import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -29,9 +28,9 @@ import com.yelp.nrtsearch.server.grpc.FieldDefRequest;
 import com.yelp.nrtsearch.server.grpc.FieldDefResponse;
 import com.yelp.nrtsearch.server.grpc.FieldType;
 import com.yelp.nrtsearch.server.grpc.TermVectors;
+import com.yelp.nrtsearch.server.grpc.util.JsonStructUtils;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScoreScript;
-import com.yelp.nrtsearch.server.luceneserver.script.ScriptParamsTransformer;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.script.js.JsScriptEngine;
 import java.text.SimpleDateFormat;
@@ -600,8 +599,7 @@ public class RegisterFieldsHandler implements Handler<FieldDefRequest, FieldDefR
     ScoreScript.Factory factory =
         ScriptService.getInstance().compile(currentField.getScript(), ScoreScript.CONTEXT);
     Map<String, Object> params =
-        Maps.transformValues(
-            currentField.getScript().getParamsMap(), ScriptParamsTransformer.INSTANCE);
+        JsonStructUtils.decodeStructLazy(currentField.getScript().getParams());
     // Workaround for the fact the the javascript expression may need bindings to other fields in
     // this request.
     // Build the complete bindings and pass it as a script parameter. We might want to think about a

@@ -30,6 +30,7 @@ import com.yelp.nrtsearch.server.grpc.Script;
 import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.grpc.VirtualField;
+import com.yelp.nrtsearch.server.grpc.util.JsonStructUtils;
 import com.yelp.nrtsearch.server.luceneserver.GlobalState;
 import io.grpc.testing.GrpcCleanupRule;
 import io.prometheus.client.CollectorRegistry;
@@ -125,10 +126,10 @@ public class JsScriptEngineTest {
         .getBlockingStub()
         .refresh(RefreshRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
 
-    Map<String, Script.ParamValue> params = new HashMap<>();
-    params.put("param_1", Script.ParamValue.newBuilder().setLongValue(10).build());
-    params.put("param_2", Script.ParamValue.newBuilder().setFloatValue(2.22F).build());
-    params.put("param_3", Script.ParamValue.newBuilder().setDoubleValue(1.11).build());
+    Map<String, Object> params = new HashMap<>();
+    params.put("param_1", 10L);
+    params.put("param_2", 2.22F);
+    params.put("param_3", 1.11);
 
     SearchResponse searchResponse = doFunctionScoreQuery("param_1*2.0+param_2*5.0", params);
     assertEquals(2, searchResponse.getHitsCount());
@@ -147,12 +148,12 @@ public class JsScriptEngineTest {
         .getBlockingStub()
         .refresh(RefreshRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
 
-    Map<String, Script.ParamValue> params = new HashMap<>();
-    params.put("bool_p", Script.ParamValue.newBuilder().setBooleanValue(true).build());
-    params.put("int_p", Script.ParamValue.newBuilder().setIntValue(3).build());
-    params.put("long_p", Script.ParamValue.newBuilder().setLongValue(100).build());
-    params.put("float_p", Script.ParamValue.newBuilder().setFloatValue(5.55F).build());
-    params.put("double_p", Script.ParamValue.newBuilder().setDoubleValue(1.11).build());
+    Map<String, Object> params = new HashMap<>();
+    params.put("bool_p", true);
+    params.put("int_p", 3);
+    params.put("long_p", 100L);
+    params.put("float_p", 5.55F);
+    params.put("double_p", 1.11);
 
     SearchResponse searchResponse =
         doFunctionScoreQuery("bool_p*2.0+int_p*3.0+long_p*5.0+float_p*7.0+double_p*11.0", params);
@@ -172,10 +173,10 @@ public class JsScriptEngineTest {
         .getBlockingStub()
         .refresh(RefreshRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
 
-    Map<String, Script.ParamValue> params = new HashMap<>();
-    params.put("param_1", Script.ParamValue.newBuilder().setLongValue(10).build());
-    params.put("param_2", Script.ParamValue.newBuilder().setFloatValue(2.22F).build());
-    params.put("param_3", Script.ParamValue.newBuilder().setDoubleValue(1.11).build());
+    Map<String, Object> params = new HashMap<>();
+    params.put("param_1", 10L);
+    params.put("param_2", 2.22F);
+    params.put("param_3", 1.11);
 
     SearchResponse searchResponse =
         doFunctionScoreQuery("param_1*long_field+param_2*float_field+param_3", params);
@@ -195,10 +196,10 @@ public class JsScriptEngineTest {
         .getBlockingStub()
         .refresh(RefreshRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
 
-    Map<String, Script.ParamValue> params = new HashMap<>();
-    params.put("param_1", Script.ParamValue.newBuilder().setLongValue(10).build());
-    params.put("param_2", Script.ParamValue.newBuilder().setFloatValue(2.22F).build());
-    params.put("count", Script.ParamValue.newBuilder().setDoubleValue(1.11).build());
+    Map<String, Object> params = new HashMap<>();
+    params.put("param_1", 10L);
+    params.put("param_2", 2.22F);
+    params.put("count", 1.11);
 
     SearchResponse searchResponse =
         doFunctionScoreQuery("param_1*long_field+count*double_field", params);
@@ -218,15 +219,15 @@ public class JsScriptEngineTest {
         .getBlockingStub()
         .refresh(RefreshRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
 
-    Map<String, Script.ParamValue> params1 = new HashMap<>();
-    params1.put("param_1", Script.ParamValue.newBuilder().setLongValue(10).build());
-    params1.put("param_2", Script.ParamValue.newBuilder().setFloatValue(2.22F).build());
-    params1.put("param_3", Script.ParamValue.newBuilder().setDoubleValue(1.11).build());
+    Map<String, Object> params1 = new HashMap<>();
+    params1.put("param_1", 10L);
+    params1.put("param_2", 2.22F);
+    params1.put("param_3", 1.11);
 
-    Map<String, Script.ParamValue> params2 = new HashMap<>();
-    params2.put("param_1", Script.ParamValue.newBuilder().setLongValue(7).build());
-    params2.put("param_2", Script.ParamValue.newBuilder().setFloatValue(3.33F).build());
-    params2.put("param_3", Script.ParamValue.newBuilder().setIntValue(25).build());
+    Map<String, Object> params2 = new HashMap<>();
+    params2.put("param_1", 7L);
+    params2.put("param_2", 3.33F);
+    params2.put("param_3", 25);
 
     VirtualField virtualField1 =
         VirtualField.newBuilder()
@@ -235,7 +236,7 @@ public class JsScriptEngineTest {
                 Script.newBuilder()
                     .setLang("js")
                     .setSource("param_3*long_field+param_2*count+param_1*float_field")
-                    .putAllParams(params1)
+                    .setParams(JsonStructUtils.encodeStruct(params1))
                     .build())
             .build();
 
@@ -246,7 +247,7 @@ public class JsScriptEngineTest {
                 Script.newBuilder()
                     .setLang("js")
                     .setSource("param_3*long_field+param_2*count+param_1*float_field")
-                    .putAllParams(params2)
+                    .setParams(JsonStructUtils.encodeStruct(params2))
                     .build())
             .build();
 
@@ -281,8 +282,7 @@ public class JsScriptEngineTest {
         0.001);
   }
 
-  private SearchResponse doFunctionScoreQuery(
-      String scriptSource, Map<String, Script.ParamValue> params) {
+  private SearchResponse doFunctionScoreQuery(String scriptSource, Map<String, Object> params) {
     return grpcServer
         .getBlockingStub()
         .search(
@@ -298,7 +298,7 @@ public class JsScriptEngineTest {
                                     Script.newBuilder()
                                         .setLang("js")
                                         .setSource(scriptSource)
-                                        .putAllParams(params)
+                                        .setParams(JsonStructUtils.encodeStruct(params))
                                         .build())
                                 .setQuery(
                                     Query.newBuilder()

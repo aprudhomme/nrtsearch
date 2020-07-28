@@ -978,35 +978,6 @@
         }
       }
     },
-    "ScriptParamValue": {
-      "type": "object",
-      "properties": {
-        "textValue": {
-          "type": "string"
-        },
-        "booleanValue": {
-          "type": "boolean",
-          "format": "boolean"
-        },
-        "intValue": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "longValue": {
-          "type": "string",
-          "format": "int64"
-        },
-        "floatValue": {
-          "type": "number",
-          "format": "float"
-        },
-        "doubleValue": {
-          "type": "number",
-          "format": "double"
-        }
-      },
-      "title": "script parameter entry"
-    },
     "SearchResponseDiagnostics": {
       "type": "object",
       "properties": {
@@ -1166,12 +1137,12 @@
       "properties": {
         "content_type": {
           "type": "string",
-          "description": "The HTTP Content-Type string representing the content type of the body."
+          "description": "The HTTP Content-Type header value specifying the content type of the body."
         },
         "data": {
           "type": "string",
           "format": "byte",
-          "description": "HTTP body binary data."
+          "description": "The HTTP request/response body as raw binary."
         },
         "extensions": {
           "type": "array",
@@ -1181,7 +1152,7 @@
           "description": "Application specific response metadata. Must be set in the first response\nfor streaming APIs."
         }
       },
-      "description": "Message that represents an arbitrary HTTP body. It should only be used for\npayload formats that can't be represented as JSON, such as raw binary or\nan HTML page.\n\n\nThis message can be used both in streaming and non-streaming API methods in\nthe request as well as the response.\n\nIt can be used as a top-level request field, which is convenient if one\nwants to extract parameters from either the URL or HTTP template into the\nrequest fields and also want access to the raw HTTP body.\n\nExample:\n\n    message GetResourceRequest {\n      // A unique request id.\n      string request_id = 1;\n\n      // The raw HTTP body is bound to this field.\n      google.api.HttpBody http_body = 2;\n    }\n\n    service ResourceService {\n      rpc GetResource(GetResourceRequest) returns (google.api.HttpBody);\n      rpc UpdateResource(google.api.HttpBody) returns (google.protobuf.Empty);\n    }\n\nExample with streaming methods:\n\n    service CaldavService {\n      rpc GetCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n      rpc UpdateCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n    }\n\nUse of this type only changes how the request and response bodies are\nhandled, all other features will continue to work unchanged."
+      "description": "Message that represents an arbitrary HTTP body. It should only be used for\npayload formats that can't be represented as JSON, such as raw binary or\nan HTML page.\n\n\nThis message can be used both in streaming and non-streaming API methods in\nthe request as well as the response.\n\nIt can be used as a top-level request field, which is convenient if one\nwants to extract parameters from either the URL or HTTP template into the\nrequest fields and also want access to the raw HTTP body.\n\nExample:\n\n    message GetResourceRequest {\n      // A unique request id.\n      string request_id = 1;\n\n      // The raw HTTP body is bound to this field.\n      google.api.HttpBody http_body = 2;\n    }\n\n    service ResourceService {\n      rpc GetResource(GetResourceRequest) returns (google.api.HttpBody);\n      rpc UpdateResource(google.api.HttpBody) returns\n      (google.protobuf.Empty);\n    }\n\nExample with streaming methods:\n\n    service CaldavService {\n      rpc GetCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n      rpc UpdateCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n    }\n\nUse of this type only changes how the request and response bodies are\nhandled, all other features will continue to work unchanged."
     },
     "luceneserverAddDocumentRequest": {
       "type": "object",
@@ -1934,6 +1905,77 @@
       },
       "title": "Used to be able to check if a value was set"
     },
+    "luceneserverJsonListValue": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/luceneserverJsonValue"
+          },
+          "description": "Repeated field of dynamically typed values."
+        }
+      },
+      "description": "`JsonListValue` is a wrapper around a repeated field of values.\n\nThe JSON representation for `JsonListValue` is JSON array."
+    },
+    "luceneserverJsonNullValue": {
+      "type": "string",
+      "enum": [
+        "NULL_VALUE"
+      ],
+      "default": "NULL_VALUE",
+      "description": "`JsonNullValue` is a singleton enumeration to represent the null value for the\n`JsonValue` type union.\n\n The JSON representation for `JsonNullValue` is JSON `null`.\n\n - NULL_VALUE: Null value."
+    },
+    "luceneserverJsonStruct": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/luceneserverJsonValue"
+          },
+          "description": "Unordered map of dynamically typed values."
+        }
+      },
+      "description": "Modified version of google.protobuf.Struct with better support\nfor long integer values."
+    },
+    "luceneserverJsonValue": {
+      "type": "object",
+      "properties": {
+        "null_value": {
+          "$ref": "#/definitions/luceneserverJsonNullValue",
+          "description": "Represents a null value."
+        },
+        "double_value": {
+          "type": "number",
+          "format": "double",
+          "description": "Represents a double value."
+        },
+        "long_value": {
+          "type": "string",
+          "format": "int64",
+          "description": "Represents a long value."
+        },
+        "string_value": {
+          "type": "string",
+          "description": "Represents a string value."
+        },
+        "bool_value": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Represents a boolean value."
+        },
+        "struct_value": {
+          "$ref": "#/definitions/luceneserverJsonStruct",
+          "description": "Represents a structured value."
+        },
+        "list_value": {
+          "$ref": "#/definitions/luceneserverJsonListValue",
+          "description": "Represents a repeated `Value`."
+        }
+      },
+      "description": "`JsonValue` represents a dynamically typed value which can be either\nnull, a number, a string, a boolean, a recursive struct value, or a\nlist of values. A producer of value is expected to set one of that\nvariants, absence of any variant indicates an error.\n\nThe JSON representation for `JsonValue` is JSON value."
+    },
     "luceneserverLiveSettingsRequest": {
       "type": "object",
       "properties": {
@@ -2324,9 +2366,7 @@
         },
         "params": {
           "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/ScriptParamValue"
-          }
+          "$ref": "#/definitions/luceneserverJsonStruct"
         }
       }
     },
@@ -2989,7 +3029,7 @@
           "description": "The longitude in degrees. It must be in the range [-180.0, +180.0]."
         }
       },
-      "description": "An object representing a latitude/longitude pair. This is expressed as a pair\nof doubles representing degrees latitude and degrees longitude. Unless\nspecified otherwise, this must conform to the\n\u003ca href=\"http://www.unoosa.org/pdf/icg/2012/template/WGS_84.pdf\"\u003eWGS84\nstandard\u003c/a\u003e. Values must be within normalized ranges.\n\nExample of normalization code in Python:\n\n    def NormalizeLongitude(longitude):\n      \"\"\"Wraps decimal degrees longitude to [-180.0, 180.0].\"\"\"\n      q, r = divmod(longitude, 360.0)\n      if r \u003e 180.0 or (r == 180.0 and q \u003c= -1.0):\n        return r - 360.0\n      return r\n\n    def NormalizeLatLng(latitude, longitude):\n      \"\"\"Wraps decimal degrees latitude and longitude to\n      [-90.0, 90.0] and [-180.0, 180.0], respectively.\"\"\"\n      r = latitude % 360.0\n      if r \u003c= 90.0:\n        return r, NormalizeLongitude(longitude)\n      elif r \u003e= 270.0:\n        return r - 360, NormalizeLongitude(longitude)\n      else:\n        return 180 - r, NormalizeLongitude(longitude + 180.0)\n\n    assert 180.0 == NormalizeLongitude(180.0)\n    assert -180.0 == NormalizeLongitude(-180.0)\n    assert -179.0 == NormalizeLongitude(181.0)\n    assert (0.0, 0.0) == NormalizeLatLng(360.0, 0.0)\n    assert (0.0, 0.0) == NormalizeLatLng(-360.0, 0.0)\n    assert (85.0, 180.0) == NormalizeLatLng(95.0, 0.0)\n    assert (-85.0, -170.0) == NormalizeLatLng(-95.0, 10.0)\n    assert (90.0, 10.0) == NormalizeLatLng(90.0, 10.0)\n    assert (-90.0, -10.0) == NormalizeLatLng(-90.0, -10.0)\n    assert (0.0, -170.0) == NormalizeLatLng(-180.0, 10.0)\n    assert (0.0, -170.0) == NormalizeLatLng(180.0, 10.0)\n    assert (-90.0, 10.0) == NormalizeLatLng(270.0, 10.0)\n    assert (90.0, 10.0) == NormalizeLatLng(-270.0, 10.0)"
+      "description": "An object representing a latitude/longitude pair. This is expressed as a pair\nof doubles representing degrees latitude and degrees longitude. Unless\nspecified otherwise, this must conform to the\n\u003ca href=\"http://www.unoosa.org/pdf/icg/2012/template/WGS_84.pdf\"\u003eWGS84\nstandard\u003c/a\u003e. Values must be within normalized ranges."
     }
   }
 }

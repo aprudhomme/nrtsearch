@@ -22,6 +22,7 @@ import static org.junit.Assert.assertSame;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.grpc.Script;
+import com.yelp.nrtsearch.server.grpc.util.JsonStructUtils;
 import com.yelp.nrtsearch.server.plugins.Plugin;
 import com.yelp.nrtsearch.server.plugins.ScriptPlugin;
 import java.io.ByteArrayInputStream;
@@ -111,27 +112,27 @@ public class ScriptServiceTest {
 
   @Test
   public void testCompileCachedWithDifferentParams() {
-    Map<String, Script.ParamValue> params1 = new HashMap<>();
-    params1.put("param_1", Script.ParamValue.newBuilder().setLongValue(10).build());
-    params1.put("param_2", Script.ParamValue.newBuilder().setFloatValue(2.22F).build());
-    params1.put("param_3", Script.ParamValue.newBuilder().setDoubleValue(1.11).build());
+    Map<String, Object> params1 = new HashMap<>();
+    params1.put("param_1", 10L);
+    params1.put("param_2", 2.22F);
+    params1.put("param_3", 1.11);
 
-    Map<String, Script.ParamValue> params2 = new HashMap<>();
-    params2.put("param_1", Script.ParamValue.newBuilder().setLongValue(7).build());
-    params2.put("param_2", Script.ParamValue.newBuilder().setFloatValue(3.33F).build());
-    params2.put("param_3", Script.ParamValue.newBuilder().setIntValue(25).build());
+    Map<String, Object> params2 = new HashMap<>();
+    params2.put("param_1", 7L);
+    params2.put("param_2", 3.33F);
+    params2.put("param_3", 25);
 
     Script script1 =
         Script.newBuilder()
             .setLang("js")
             .setSource("param_1*long_field+param_2*count+param_3*float_field")
-            .putAllParams(params1)
+            .setParams(JsonStructUtils.encodeStruct(params1))
             .build();
     Script script2 =
         Script.newBuilder()
             .setLang("js")
             .setSource("param_1*long_field+param_2*count+param_3*float_field")
-            .putAllParams(params2)
+            .setParams(JsonStructUtils.encodeStruct(params2))
             .build();
     Script script3 =
         Script.newBuilder()

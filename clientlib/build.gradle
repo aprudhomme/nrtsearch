@@ -44,6 +44,8 @@ dependencies {
 
     //test deps
     compile "io.grpc:grpc-testing:${grpcVersion}"
+
+    protobuf files('ext_proto/')
 }
 
 // Inform IDEs like IntelliJ IDEA, Eclipse or NetBeans about the generated code.
@@ -66,7 +68,9 @@ protobuf {
     }
 }
 
-test {}
+test {
+    testLogging.exceptionFormat = 'full'
+}
 
 task javadocs(type: Javadoc) {
     source = sourceSets.main.java.srcDirs

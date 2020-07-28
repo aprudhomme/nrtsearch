@@ -17,11 +17,10 @@ package com.yelp.nrtsearch.server.luceneserver;
 
 import static com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator.isAnalyzerDefined;
 
-import com.google.common.collect.Maps;
 import com.yelp.nrtsearch.server.grpc.*;
+import com.yelp.nrtsearch.server.grpc.util.JsonStructUtils;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScoreScript;
-import com.yelp.nrtsearch.server.luceneserver.script.ScriptParamsTransformer;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -125,8 +124,7 @@ class QueryNodeMapper {
     ScoreScript.Factory scriptFactory =
         ScriptService.getInstance().compile(functionScoreQuery.getScript(), ScoreScript.CONTEXT);
     Map<String, Object> params =
-        Maps.transformValues(
-            functionScoreQuery.getScript().getParamsMap(), ScriptParamsTransformer.INSTANCE);
+        JsonStructUtils.decodeStructLazy(functionScoreQuery.getScript().getParams());
     return new FunctionScoreQuery(
         getQuery(functionScoreQuery.getQuery(), state),
         scriptFactory.newFactory(params, state.docLookup));

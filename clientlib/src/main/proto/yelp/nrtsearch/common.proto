@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+import "protoc-gen-swagger/options/annotations.proto";
+
+option java_multiple_files = true;
+option java_package = "com.yelp.nrtsearch.server.grpc";
+option java_outer_classname = "CommonProto";
+option objc_class_prefix = "HLW";
+
+package luceneserver;
+
+// Modified version of google.protobuf.Struct with better support
+// for long integer values.
+message JsonStruct {
+    // Unordered map of dynamically typed values.
+    map<string, JsonValue> fields = 1;
+}
+
+// `JsonValue` represents a dynamically typed value which can be either
+// null, a number, a string, a boolean, a recursive struct value, or a
+// list of values. A producer of value is expected to set one of that
+// variants, absence of any variant indicates an error.
+//
+// The JSON representation for `JsonValue` is JSON value.
+message JsonValue {
+    // The kind of value.
+    oneof kind {
+        // Represents a null value.
+        JsonNullValue null_value = 1;
+        // Represents a double value.
+        double double_value = 2;
+        // Represents a long value.
+        int64 long_value = 3;
+        // Represents a string value.
+        string string_value = 4;
+        // Represents a boolean value.
+        bool bool_value = 5;
+        // Represents a structured value.
+        JsonStruct struct_value = 6;
+        // Represents a repeated `Value`.
+        JsonListValue list_value = 7;
+    }
+}
+
+// `JsonNullValue` is a singleton enumeration to represent the null value for the
+// `JsonValue` type union.
+//
+//  The JSON representation for `JsonNullValue` is JSON `null`.
+enum JsonNullValue {
+    // Null value.
+    NULL_VALUE = 0;
+}
+
+// `JsonListValue` is a wrapper around a repeated field of values.
+//
+// The JSON representation for `JsonListValue` is JSON array.
+message JsonListValue {
+    // Repeated field of dynamically typed values.
+    repeated JsonValue values = 1;
+}
+

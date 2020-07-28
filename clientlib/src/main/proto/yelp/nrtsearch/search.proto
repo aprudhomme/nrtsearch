@@ -3,6 +3,8 @@ syntax = "proto3";
 
 import "google/type/latlng.proto";
 import "yelp/nrtsearch/analysis.proto";
+import "yelp/nrtsearch/common.proto";
+import "protoc-gen-swagger/options/annotations.proto";
 
 option java_multiple_files = true;
 option java_package = "com.yelp.nrtsearch.server.grpc";
@@ -234,7 +236,7 @@ message Script {
         }
     }
 
-    map<string, ParamValue> params = 7; // parameters passed into script execution
+    JsonStruct params = 7 [(grpc.gateway.protoc_gen_swagger.options.openapiv2_field) = {type: OBJECT, ref: ""}]; // parameters passed into script execution
 }
 
 message QuerySortField {

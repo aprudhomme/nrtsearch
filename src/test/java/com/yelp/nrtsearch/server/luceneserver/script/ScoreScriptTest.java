@@ -35,6 +35,7 @@ import com.yelp.nrtsearch.server.grpc.Script;
 import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.grpc.VirtualField;
+import com.yelp.nrtsearch.server.grpc.util.JsonStructUtils;
 import com.yelp.nrtsearch.server.luceneserver.GlobalState;
 import com.yelp.nrtsearch.server.luceneserver.doc.DocLookup;
 import com.yelp.nrtsearch.server.luceneserver.doc.LoadedDocValues;
@@ -49,11 +50,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.DoubleValues;
 import org.junit.After;
@@ -610,9 +607,15 @@ public class ScoreScriptTest {
         assertEquals("params size", 6, getParams().size());
         assertParam("text_param", String.class, "text_val");
         assertParam("bool_param", Boolean.class, false);
-        assertParam("int_param", Integer.class, 100);
+        assertParam("int_param", Long.class, 100L);
         assertParam("long_param", Long.class, 1001L);
-        assertParam("float_param", Float.class, 1.123F);
+        // float will be stored as double in params
+        assertEquals("float_param type", Double.class, getParams().get("float_param").getClass());
+        assertEquals(
+            "float_param value",
+            1.123F,
+            ((Number) getParams().get("float_param")).floatValue(),
+            Math.ulp(1.123F));
         assertParam("double_param", Double.class, 3.456);
       } catch (Error e) {
         throw new RuntimeException(e.getMessage(), e.getCause());
@@ -819,6 +822,14 @@ public class ScoreScriptTest {
         .getBlockingStub()
         .refresh(RefreshRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
 
+    Map<String, Object> paramsMap = new HashMap<>();
+    paramsMap.put("text_param", "text_val");
+    paramsMap.put("bool_param", false);
+    paramsMap.put("int_param", 100);
+    paramsMap.put("long_param", 1001L);
+    paramsMap.put("float_param", 1.123F);
+    paramsMap.put("double_param", 3.456);
+
     VirtualField virtualField =
         VirtualField.newBuilder()
             .setName("test_field")
@@ -826,19 +837,7 @@ public class ScoreScriptTest {
                 Script.newBuilder()
                     .setLang("test_lang")
                     .setSource("test_params")
-                    .putParams(
-                        "text_param",
-                        Script.ParamValue.newBuilder().setTextValue("text_val").build())
-                    .putParams(
-                        "bool_param", Script.ParamValue.newBuilder().setBooleanValue(false).build())
-                    .putParams("int_param", Script.ParamValue.newBuilder().setIntValue(100).build())
-                    .putParams(
-                        "long_param", Script.ParamValue.newBuilder().setLongValue(1001).build())
-                    .putParams(
-                        "float_param", Script.ParamValue.newBuilder().setFloatValue(1.123F).build())
-                    .putParams(
-                        "double_param",
-                        Script.ParamValue.newBuilder().setDoubleValue(3.456).build())
+                    .setParams(JsonStructUtils.encodeStruct(paramsMap))
                     .build())
             .build();
 
