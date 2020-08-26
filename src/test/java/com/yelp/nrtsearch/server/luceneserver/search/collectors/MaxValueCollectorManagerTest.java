@@ -31,6 +31,7 @@ import com.yelp.nrtsearch.server.luceneserver.ShardState;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchCollectorManager;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchContext;
+import com.yelp.nrtsearch.server.luceneserver.search.fetch.FetchTasks;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -157,6 +158,11 @@ public class MaxValueCollectorManagerTest extends ServerTestCase {
 
     @Override
     public SearchCollectorManager collectorManager() {
+      return null;
+    }
+
+    @Override
+    public FetchTasks fetchTasks() {
       return null;
     }
   }

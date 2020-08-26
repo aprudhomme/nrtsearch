@@ -70,6 +70,9 @@ public class FetchOperation {
       hitIndex += sliceHits.size();
       leafIndex++;
     }
+
+    context.fetchTasks().processAllHits(context, sortedHits);
+
     context
         .searchResponse()
         .getDiagnosticsBuilder()
@@ -167,6 +170,8 @@ public class FetchOperation {
             "No valid method to retrieve field: " + fieldDefEntry.getKey());
       }
     }
+
+    context.fetchTasks().processSegmentHits(context, sliceSegment, sliceHits);
   }
 
   /** Fetch field value from virtual field's {@link org.apache.lucene.search.DoubleValuesSource} */

@@ -60,6 +60,7 @@ import com.yelp.nrtsearch.server.luceneserver.WriteNRTPointHandler;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
+import com.yelp.nrtsearch.server.luceneserver.search.fetch.FetchTaskCreator;
 import com.yelp.nrtsearch.server.monitoring.Configuration;
 import com.yelp.nrtsearch.server.monitoring.LuceneServerMonitoringServerInterceptor;
 import com.yelp.nrtsearch.server.plugins.Plugin;
@@ -265,6 +266,7 @@ public class LuceneServer {
     private void initExtendableComponents(
         LuceneServerConfiguration configuration, List<Plugin> plugins) {
       AnalyzerCreator.initialize(configuration, plugins);
+      FetchTaskCreator.initialize(configuration, plugins);
       FieldDefCreator.initialize(configuration, plugins);
       ScriptService.initialize(configuration, plugins);
     }

@@ -35,6 +35,7 @@ import com.yelp.nrtsearch.server.luceneserver.search.collectors.DocCollector;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.FieldCollector;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.LargeNumHitsCollector;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.ScoreCollector;
+import com.yelp.nrtsearch.server.luceneserver.search.fetch.FetchTasks;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -126,6 +127,8 @@ public class SearchRequestProcessor {
               context.searchResponse(),
               threadPoolExecutor));
     }
+
+    context.setFetchTasks(new FetchTasks(searchRequest.getFetchTasksList()));
 
     context.setQuery(query);
     context.setCollectorManager(buildCollectorManager(context, searchRequest));

@@ -1717,6 +1717,17 @@
       "default": "NO_FACETS",
       "description": "Whether/How this field should index facets, and how."
     },
+    "luceneserverFetchTask": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
     "luceneserverField": {
       "type": "object",
       "properties": {
@@ -2576,6 +2587,12 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/luceneserverCollector"
+          }
+        },
+        "fetchTasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/luceneserverFetchTask"
           }
         }
       }

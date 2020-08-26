@@ -19,6 +19,7 @@ import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
 import com.yelp.nrtsearch.server.luceneserver.ShardState;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
+import com.yelp.nrtsearch.server.luceneserver.search.fetch.FetchTasks;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.facet.DrillSideways;
@@ -39,6 +40,7 @@ class MutableSearchContext implements SearchContext {
   private Query query;
   private SearchCollectorManager collectorManager;
   private DrillSideways drillSideways;
+  private FetchTasks fetchTasks;
 
   MutableSearchContext(
       IndexState indexState,
@@ -106,6 +108,11 @@ class MutableSearchContext implements SearchContext {
     return collectorManager;
   }
 
+  @Override
+  public FetchTasks fetchTasks() {
+    return fetchTasks;
+  }
+
   void setTimestampSec(long timestampSec) {
     this.timestampSec = timestampSec;
   }
@@ -132,5 +139,9 @@ class MutableSearchContext implements SearchContext {
 
   void setDrillSideways(DrillSideways drillSideways) {
     this.drillSideways = drillSideways;
+  }
+
+  void setFetchTasks(FetchTasks fetchTasks) {
+    this.fetchTasks = fetchTasks;
   }
 }
