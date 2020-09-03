@@ -1387,6 +1387,9 @@
       "properties": {
         "indexName": {
           "type": "string"
+        },
+        "batch": {
+          "type": "boolean"
         }
       }
     },

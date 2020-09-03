@@ -30,6 +30,7 @@ import com.yelp.nrtsearch.server.luceneserver.AddDocumentHandler.DocumentIndexer
 import com.yelp.nrtsearch.server.luceneserver.AddReplicaHandler;
 import com.yelp.nrtsearch.server.luceneserver.BackupIndexRequestHandler;
 import com.yelp.nrtsearch.server.luceneserver.BuildSuggestHandler;
+import com.yelp.nrtsearch.server.luceneserver.CommitBatcher;
 import com.yelp.nrtsearch.server.luceneserver.CopyFilesHandler;
 import com.yelp.nrtsearch.server.luceneserver.CreateSnapshotHandler;
 import com.yelp.nrtsearch.server.luceneserver.DeleteAllDocumentsHandler;
@@ -687,7 +688,14 @@ public class LuceneServer {
         CommitRequest commitRequest, StreamObserver<CommitResponse> commitResponseStreamObserver) {
       try {
         IndexState indexState = globalState.getIndex(commitRequest.getIndexName());
-        long gen = indexState.commit();
+        long gen;
+        if (commitRequest.getBatch()) {
+          CommitBatcher.BatchCommitStatus commitStatus = indexState.commitBatcher.register();
+          commitStatus.waitForCompletion();
+          gen = commitStatus.getGenOrThrow();
+        } else {
+          gen = indexState.commit();
+        }
         CommitResponse reply = CommitResponse.newBuilder().setGen(gen).build();
         logger.debug(
             String.format(

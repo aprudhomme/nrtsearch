@@ -542,6 +542,7 @@ public class IndexState implements Closeable, Restorable {
   public void close() throws IOException {
     logger.info(String.format("IndexState.close name= %s", name));
     List<Closeable> closeables = new ArrayList<>();
+    closeables.add(commitBatcher);
     closeables.addAll(shards.values());
     closeables.addAll(fields.values());
     for (Lookup suggester : suggesters.values()) {
@@ -1127,4 +1128,6 @@ public class IndexState implements Closeable, Restorable {
    * com.yelp.nrtsearch.server.luceneserver.doc.SegmentDocLookup} for a given lucene segment.
    */
   public final DocLookup docLookup = new DocLookup(this);
+
+  public final CommitBatcher commitBatcher = new CommitBatcher(this);
 }

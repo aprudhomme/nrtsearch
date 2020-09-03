@@ -483,6 +483,7 @@ message RefreshResponse {
 
 message CommitRequest {
     string indexName = 1; //index to commit
+    bool batch = 2;
 }
 
 message CommitResponse {
