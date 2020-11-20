@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaCopyJob;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Locale;
@@ -43,7 +44,7 @@ class Jobs extends Thread implements Closeable {
    * Returns null if we are closing, else, returns the top job or waits for one to arrive if the
    * queue is empty.
    */
-  private synchronized SimpleCopyJob getNextJob() {
+  private synchronized ReplicaCopyJob getNextJob() {
     while (true) {
       if (finish) {
         return null;
@@ -54,7 +55,7 @@ class Jobs extends Thread implements Closeable {
           throw new RuntimeException(ie);
         }
       } else {
-        return (SimpleCopyJob) queue.poll();
+        return (ReplicaCopyJob) queue.poll();
       }
     }
   }
@@ -63,7 +64,7 @@ class Jobs extends Thread implements Closeable {
   public void run() {
     // nocommit: prioritize jobs better here, the way an OS assigns CPU to processes:
     while (true) {
-      SimpleCopyJob topJob = getNextJob();
+      ReplicaCopyJob topJob = getNextJob();
       if (topJob == null) {
         assert finish;
         break;

@@ -18,6 +18,8 @@ package com.yelp.nrtsearch.server.luceneserver;
 import com.yelp.nrtsearch.server.grpc.FilesMetadata;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.grpc.TransferStatus;
+import com.yelp.nrtsearch.server.luceneserver.nrt.NrtPublisher;
+import com.yelp.nrtsearch.server.luceneserver.nrt.PrimaryStateManager;
 import com.yelp.nrtsearch.server.utils.HostPort;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -26,16 +28,23 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexCommit;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.StandardDirectoryReader;
+import org.apache.lucene.replicator.nrt.CopyState;
 import org.apache.lucene.replicator.nrt.FileMetaData;
 import org.apache.lucene.replicator.nrt.PrimaryNode;
 import org.apache.lucene.search.IndexSearcher;
@@ -53,10 +62,15 @@ public class NRTPrimaryNode extends PrimaryNode {
   final List<MergePreCopy> warmingSegments = Collections.synchronizedList(new ArrayList<>());
   final Queue<ReplicaDetails> replicasInfos = new ConcurrentLinkedQueue();
 
+  private final NrtPublisher publisher;
+  private final PrimaryStateManager primaryStateManager;
+
   public NRTPrimaryNode(
       String indexName,
       HostPort hostPort,
       IndexWriter writer,
+      NrtPublisher publisher,
+      PrimaryStateManager primaryStateManager,
       int id,
       long primaryGen,
       long forcePrimaryVersion,
@@ -66,6 +80,8 @@ public class NRTPrimaryNode extends PrimaryNode {
     super(writer, id, primaryGen, forcePrimaryVersion, searcherFactory, printStream);
     this.hostPort = hostPort;
     this.indexName = indexName;
+    this.publisher = publisher;
+    this.primaryStateManager = primaryStateManager;
   }
 
   public static class ReplicaDetails {
@@ -193,6 +209,16 @@ public class NRTPrimaryNode extends PrimaryNode {
     }
   }
 
+  public void publishNrtPoint() throws IOException {
+    CopyState copyState = getCopyState();
+    try {
+      publisher.publishNrtPoint(copyState);
+      primaryStateManager.updateActiveStateWithCopyState(copyState);
+    } finally {
+      releaseCopyState(copyState);
+    }
+  }
+
   // TODO: awkward we are forced to do this here ... this should really live in replicator code,
   // e.g. PrimaryNode.mgr should be this:
   static class PrimaryNodeReferenceManager extends ReferenceManager<IndexSearcher> {
@@ -216,7 +242,8 @@ public class NRTPrimaryNode extends PrimaryNode {
     @Override
     protected IndexSearcher refreshIfNeeded(IndexSearcher referenceToRefresh) throws IOException {
       if (primary.flushAndRefresh()) {
-        primary.sendNewNRTPointToReplicas();
+        primary.publishNrtPoint();
+        //primary.sendNewNRTPointToReplicas();
         // NOTE: steals a ref from one ReferenceManager to another!
         return SearcherManager.getSearcher(
             searcherFactory,
@@ -241,6 +268,23 @@ public class NRTPrimaryNode extends PrimaryNode {
   @Override
   protected void preCopyMergedSegmentFiles(SegmentCommitInfo info, Map<String, FileMetaData> files)
       throws IOException {
+
+    System.out.println("start merge: " + info.info);
+    publisher.publishMergeFiles(files);
+
+    primaryStateManager.addMergeFiles(files);
+    while(!primaryStateManager.areMergesCompleted(files)) {
+      System.out.println("Waiting for merges to warm");
+      try {
+        Thread.sleep(1000);
+      } catch (InterruptedException e) {
+        throw new RuntimeException("Interrupted", e);
+      }
+    }
+    /*
+
+    // wait for replicas to warm?
+
     if (replicasInfos.isEmpty()) {
       logger.info("no replicas, skip warming " + info);
       message("no replicas; skip warming " + info);
@@ -398,12 +442,14 @@ public class NRTPrimaryNode extends PrimaryNode {
       message(msg);
     } finally {
       warmingSegments.remove(preCopy);
-    }
+    }*/
   }
 
   public void setRAMBufferSizeMB(double mb) {
     writer.getConfig().setRAMBufferSizeMB(mb);
   }
+
+  //public Map<String, FilesMetadata> addReplicaV2() {}
 
   public void addReplica(int replicaID, ReplicationServerClient replicationServerClient)
       throws IOException {

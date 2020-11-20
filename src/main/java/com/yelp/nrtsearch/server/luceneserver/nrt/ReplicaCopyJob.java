@@ -13,9 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.yelp.nrtsearch.server.luceneserver;
+package com.yelp.nrtsearch.server.luceneserver.nrt;
 
-import com.yelp.nrtsearch.server.grpc.RawFileChunk;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import java.io.IOException;
 import java.util.HashSet;
@@ -31,14 +30,15 @@ import org.apache.lucene.replicator.nrt.Node;
 import org.apache.lucene.replicator.nrt.NodeCommunicationException;
 import org.apache.lucene.replicator.nrt.ReplicaNode;
 
-public class SimpleCopyJob extends CopyJob {
+public class ReplicaCopyJob extends CopyJob {
   final byte[] copyBuffer = new byte[65536];
   private final CopyState copyState;
   private final ReplicationServerClient primaryAddres;
   private final String indexName;
   private Iterator<Map.Entry<String, FileMetaData>> iter;
+  private final NrtPublisher publisher;
 
-  public SimpleCopyJob(
+  public ReplicaCopyJob(
       String reason,
       ReplicationServerClient primaryAddress,
       CopyState copyState,
@@ -46,17 +46,24 @@ public class SimpleCopyJob extends CopyJob {
       Map<String, FileMetaData> files,
       boolean highPriority,
       OnceDone onceDone,
-      String indexName)
+      String indexName,
+      NrtPublisher publisher)
       throws IOException {
     super(reason, files, dest, highPriority, onceDone);
     this.copyState = copyState;
     this.primaryAddres = primaryAddress;
     this.indexName = indexName;
+    this.publisher = publisher;
   }
 
   @Override
   protected CopyOneFile newCopyOneFile(CopyOneFile prev) {
-    Iterator<RawFileChunk> rawFileChunkIterator;
+    System.out.println("Creating new CopyOneFile from previous: " + prev.name);
+    // This should be ok to do, since this is only used to transfer the current file copy
+    // to a new CopyJob. However, this will hold the current job's copy buffer until
+    // it finishes.
+    return prev;
+    /*Iterator<RawFileChunk> rawFileChunkIterator;
     try {
       rawFileChunkIterator = primaryAddres.recvRawFile(prev.name, prev.getBytesCopied(), indexName);
     } catch (Throwable t) {
@@ -68,8 +75,7 @@ public class SimpleCopyJob extends CopyJob {
       throw new NodeCommunicationException("exc during start", t);
     }
 
-    //return new CopyOneFile(prev, rawFileChunkIterator);
-    return null;
+    return new CopyOneFile(prev, rawFileChunkIterator);*/
   }
 
   @Override
@@ -116,7 +122,7 @@ public class SimpleCopyJob extends CopyJob {
       filesToCopy.add(ent.getKey());
     }
 
-    SimpleCopyJob other = (SimpleCopyJob) _other;
+    ReplicaCopyJob other = (ReplicaCopyJob) _other;
     synchronized (other) {
       for (Map.Entry<String, FileMetaData> ent : other.toCopy) {
         if (filesToCopy.contains(ent.getKey())) {
@@ -196,7 +202,7 @@ public class SimpleCopyJob extends CopyJob {
   /** Higher priority and then "first come first serve" order. */
   @Override
   public int compareTo(CopyJob _other) {
-    SimpleCopyJob other = (SimpleCopyJob) _other;
+    ReplicaCopyJob other = (ReplicaCopyJob) _other;
     if (highPriority != other.highPriority) {
       return highPriority ? -1 : 1;
     } else if (ord < other.ord) {
@@ -212,6 +218,7 @@ public class SimpleCopyJob extends CopyJob {
 
   /** Do an iota of work; returns true if all copying is done */
   public synchronized boolean visit() throws IOException {
+    System.out.println("Visit replica copy job");
     if (exc != null) {
       // We were externally cancelled:
       return true;
@@ -223,17 +230,19 @@ public class SimpleCopyJob extends CopyJob {
       Map.Entry<String, FileMetaData> next = iter.next();
       FileMetaData metaData = next.getValue();
       String fileName = next.getKey();
-      Iterator<RawFileChunk> rawFileChunkIterator;
+      System.out.println("Create job for: " + fileName);
+      /*Iterator<RawFileChunk> rawFileChunkIterator;
       try {
         rawFileChunkIterator = primaryAddres.recvRawFile(fileName, 0, indexName);
       } catch (Throwable t) {
         cancel("exc during start", t);
         throw new NodeCommunicationException("exc during start", t);
-      }
+      }*/
       //current = new CopyOneFile(rawFileChunkIterator, dest, fileName, metaData, copyBuffer);
-      current = null;
+      current = new NrtCopyOneFile(publisher.getFileDataInput(fileName), dest, fileName, metaData, copyBuffer);
     }
     if (current.visit()) {
+      System.out.println("Done with: " + current.name);
       // This file is done copying
       copiedFiles.put(current.name, current.tmpName);
       totBytesCopied += current.getBytesCopied();
@@ -247,7 +256,7 @@ public class SimpleCopyJob extends CopyJob {
 
   @Override
   public String toString() {
-    return "SimpleCopyJob(ord="
+    return "ReplicaCopyJob(ord="
         + ord
         + " "
         + reason

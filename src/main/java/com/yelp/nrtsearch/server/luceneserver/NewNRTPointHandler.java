@@ -35,6 +35,7 @@ public class NewNRTPointHandler implements Handler<NewNRTPoint, TransferStatus> 
 
     long version = newNRTPointRequest.getVersion();
     long newPrimaryGen = newNRTPointRequest.getPrimaryGen();
+    System.out.println("Triggering new nrtpoint: " + version);
     try {
       shardState.nrtReplicaNode.newNRTPoint(newPrimaryGen, version);
     } catch (IOException e) {

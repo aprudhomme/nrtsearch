@@ -67,6 +67,7 @@ public class CopyFilesHandler implements Handler<CopyFiles, TransferStatus> {
     while (true) {
       // nocommit don't poll!  use a condition...
       if (finished.get()) {
+        shardState.replicaStateManager.addWarmedMerges(files.keySet());
         responseObserver.onNext(
             TransferStatus.newBuilder()
                 .setMessage("replica is done copying files.." + files.keySet())

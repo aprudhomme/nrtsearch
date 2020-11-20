@@ -911,7 +911,7 @@ public class IndexState implements Closeable, Restorable {
       throws IOException {
     IndexWriterConfig iwc = new IndexWriterConfig(indexAnalyzer);
     iwc.setOpenMode(openMode);
-    if (getBooleanSetting("indexVerbose", false)) {
+    if (getBooleanSetting("indexVerbose", true)) {
       iwc.setInfoStream(new PrintStreamInfoStream(System.out));
     }
 

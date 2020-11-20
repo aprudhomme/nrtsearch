@@ -25,7 +25,7 @@ import java.util.Locale;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexOutput;
 
-public class CopyOneFile implements Closeable {
+public class CopyOneFile2 implements Closeable {
   private final Iterator<RawFileChunk> rawFileChunkIterator;
   private final IndexOutput out;
   private final ReplicaNode dest;
@@ -39,7 +39,7 @@ public class CopyOneFile implements Closeable {
   private long bytesCopied;
   private long remoteFileChecksum;
 
-  public CopyOneFile(
+  public CopyOneFile2(
       Iterator<RawFileChunk> rawFileChunkIterator,
       ReplicaNode dest,
       String name,
@@ -71,7 +71,7 @@ public class CopyOneFile implements Closeable {
   }
 
   /** Transfers this file copy to another input, continuing where the first one left off */
-  public CopyOneFile(CopyOneFile other, Iterator<RawFileChunk> rawFileChunkIterator) {
+  public CopyOneFile2(CopyOneFile2 other, Iterator<RawFileChunk> rawFileChunkIterator) {
     this.rawFileChunkIterator = rawFileChunkIterator;
     this.dest = other.dest;
     this.name = other.name;

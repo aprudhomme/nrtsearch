@@ -20,6 +20,12 @@ import com.yelp.nrtsearch.server.grpc.FilesMetadata;
 import com.yelp.nrtsearch.server.grpc.GetNodesResponse;
 import com.yelp.nrtsearch.server.grpc.NodeInfo;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
+import com.yelp.nrtsearch.server.luceneserver.nrt.NrtActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.NrtFileMetaData;
+import com.yelp.nrtsearch.server.luceneserver.nrt.NrtPublisher;
+import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaCopyJob;
+import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaStateManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaStateManager.InitialMergeState;
 import com.yelp.nrtsearch.server.utils.HostPort;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -28,6 +34,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.lucene.replicator.nrt.CopyJob;
 import org.apache.lucene.replicator.nrt.CopyState;
@@ -49,12 +57,21 @@ public class NRTReplicaNode extends ReplicaNode {
   private final HostPort hostPort;
   Logger logger = LoggerFactory.getLogger(NRTPrimaryNode.class);
 
+  private final NrtPublisher publisher;
+  private final ReplicaStateManager replicaStateManager;
+
+  private InitialMergesThread initialMergesThread;
+
+  private ThreadPoolExecutor mergeThreadPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(4);
+
   public NRTReplicaNode(
       String indexName,
       ReplicationServerClient primaryAddress,
       HostPort hostPort,
       int replicaId,
       Directory indexDir,
+      NrtPublisher publisher,
+      ReplicaStateManager replicaStateManager,
       SearcherFactory searcherFactory,
       PrintStream printStream,
       long primaryGen)
@@ -63,12 +80,24 @@ public class NRTReplicaNode extends ReplicaNode {
     this.primaryAddress = primaryAddress;
     this.indexName = indexName;
     this.hostPort = hostPort;
+    this.publisher = publisher;
+    this.replicaStateManager = replicaStateManager;
     // Handles fetching files from primary, on a new thread which receives files from primary
     jobs = new Jobs(this);
     jobs.setName("R" + id + ".copyJobs");
     jobs.setDaemon(true);
     jobs.start();
+    lastFileMetaData = publisher.getLastPublishedFiles();
     start(primaryGen);
+    replicaStateManager.getActiveStateSync();
+    NrtActiveState currentActiveState = replicaStateManager.getCurrentActiveState();
+    // force a blocking update to the current version
+    if (currentActiveState != null) {
+      CopyState copyState = publisher.fetchActiveState(currentActiveState);
+      newNRTPoint(copyState.primaryGen, copyState.version);
+    }
+    // start async watcher for active state changes
+    replicaStateManager.startStateUpdates();
   }
 
   @Override
@@ -81,13 +110,19 @@ public class NRTReplicaNode extends ReplicaNode {
       throws IOException {
     CopyState copyState;
 
+    System.out.println("Create new copy job: " + reason);
+    System.out.println("files: " + files);
+    System.out.println("prevFiles: " + prevFiles);
+    System.out.println("high priority: " + highPriority);
+
     // sendMeFiles(?) (we dont need this, just send Index,replica, and request for copy State)
     if (files == null) {
       // No incoming CopyState: ask primary for latest one now
       try {
         // Exceptions in here mean something went wrong talking over the socket, which are fine
         // (e.g. primary node crashed):
-        copyState = getCopyStateFromPrimary();
+        //copyState = getCopyStateFromPrimary();
+        copyState = publisher.fetchActiveState(replicaStateManager.getCurrentActiveState());
       } catch (Throwable t) {
         throw new NodeCommunicationException("exc while reading files to copy", t);
       }
@@ -95,8 +130,8 @@ public class NRTReplicaNode extends ReplicaNode {
     } else {
       copyState = null;
     }
-    return new SimpleCopyJob(
-        reason, primaryAddress, copyState, this, files, highPriority, onceDone, indexName);
+    return new ReplicaCopyJob(
+        reason, primaryAddress, copyState, this, files, highPriority, onceDone, indexName, publisher);
   }
 
   private CopyState getCopyStateFromPrimary() throws IOException {
@@ -160,12 +195,27 @@ public class NRTReplicaNode extends ReplicaNode {
         String.format(
             "send new_replica to primary host=%s, tcpPort=%s",
             primaryAddress.getHost(), primaryAddress.getPort()));
-    primaryAddress.addReplicas(indexName, this.id, hostPort.getHostName(), hostPort.getPort());
+    // register self to process new merge warming
+    replicaStateManager.startMergeHandling(this);
+    System.out.println("Blocking for initial replica state");
+    InitialMergeState initialState = replicaStateManager.blockForInitialMergeState();
+    if (initialState != null) {
+      System.out.println("Got initial merge state need to start warming: " + initialState.replicaMergeState.initialPendingMerges);
+      startMergeTask(initialState.replicaMergeState.initialPendingMerges, initialState.primaryGen);
+    } else {
+      System.out.println("Could not get initial state, there may not be an active primary");
+    }
+    //primaryAddress.addReplicas(indexName, this.id, hostPort.getHostName(), hostPort.getPort());
+  }
+
+  public void startMergeTask(Map<String, NrtFileMetaData> files, long primaryGen) {
+    mergeThreadPool.execute(new InitialMergesThread(files, primaryGen));
   }
 
   public CopyJob launchPreCopyFiles(
       AtomicBoolean finished, long curPrimaryGen, Map<String, FileMetaData> files)
       throws IOException {
+    System.out.println("Start merge pre copy: " + files.keySet());
     return launchPreCopyMerge(finished, curPrimaryGen, files);
   }
 
@@ -202,5 +252,45 @@ public class NRTReplicaNode extends ReplicaNode {
       }
     }
     return false;
+  }
+
+  private class InitialMergesThread implements Runnable {
+    private final Map<String, FileMetaData> files;
+    private final long primaryGen;
+
+    InitialMergesThread(Map<String, NrtFileMetaData> files, long primaryGen) {
+      super();
+      this.files = new HashMap<>();
+      files.forEach((k, v) -> this.files.put(k, v.toFileMetaData()));
+      this.primaryGen = primaryGen;
+    }
+
+    @Override
+    public void run() {
+      AtomicBoolean finished = new AtomicBoolean();
+      try {
+        CopyJob job = launchPreCopyFiles(finished, primaryGen, files);
+      } catch (IOException e) {
+        System.out.println(String.format("replica failed to launchPreCopyFiles" + files.keySet()));
+        // called must set; //responseObserver.onError(e);
+        throw new RuntimeException(e);
+      }
+
+      while (true) {
+        // nocommit don't poll!  use a condition...
+        if (finished.get()) {
+          replicaStateManager.addWarmedMerges(files.keySet());
+          System.out.println("replica is done copying files.." + files.keySet());
+          break;
+        }
+        try {
+          Thread.sleep(10);
+          System.out.println("replica is copying files..." + files.keySet());
+        } catch (InterruptedException e) {
+          System.out.println(String.format("replica failed to copy files..." + files.keySet()));
+          throw new RuntimeException(e);
+        }
+      }
+    }
   }
 }
