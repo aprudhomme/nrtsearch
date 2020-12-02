@@ -15,7 +15,6 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.nrt;
 
-import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -33,27 +32,21 @@ import org.apache.lucene.replicator.nrt.ReplicaNode;
 public class ReplicaCopyJob extends CopyJob {
   final byte[] copyBuffer = new byte[65536];
   private final CopyState copyState;
-  private final ReplicationServerClient primaryAddres;
-  private final String indexName;
   private Iterator<Map.Entry<String, FileMetaData>> iter;
-  private final NrtPublisher publisher;
+  private final ReplicaDataManager replicaDataManager;
 
   public ReplicaCopyJob(
       String reason,
-      ReplicationServerClient primaryAddress,
       CopyState copyState,
       ReplicaNode dest,
       Map<String, FileMetaData> files,
       boolean highPriority,
       OnceDone onceDone,
-      String indexName,
-      NrtPublisher publisher)
+      ReplicaDataManager replicaDataManager)
       throws IOException {
     super(reason, files, dest, highPriority, onceDone);
     this.copyState = copyState;
-    this.primaryAddres = primaryAddress;
-    this.indexName = indexName;
-    this.publisher = publisher;
+    this.replicaDataManager = replicaDataManager;
   }
 
   @Override
@@ -63,19 +56,6 @@ public class ReplicaCopyJob extends CopyJob {
     // to a new CopyJob. However, this will hold the current job's copy buffer until
     // it finishes.
     return prev;
-    /*Iterator<RawFileChunk> rawFileChunkIterator;
-    try {
-      rawFileChunkIterator = primaryAddres.recvRawFile(prev.name, prev.getBytesCopied(), indexName);
-    } catch (Throwable t) {
-      try {
-        cancel("exc during start", t);
-      } catch (IOException e) {
-        throw new NodeCommunicationException("cancel IOException during newCopyOneFile", e);
-      }
-      throw new NodeCommunicationException("exc during start", t);
-    }
-
-    return new CopyOneFile(prev, rawFileChunkIterator);*/
   }
 
   @Override
@@ -109,7 +89,7 @@ public class ReplicaCopyJob extends CopyJob {
 
   @Override
   public void runBlocking() throws Exception {
-    while (visit() == false) ;
+    while (!visit()) ;
     if (getFailed()) {
       throw new RuntimeException("copy failed: " + cancelReason, exc);
     }
@@ -224,22 +204,16 @@ public class ReplicaCopyJob extends CopyJob {
       return true;
     }
     if (current == null) {
-      if (iter.hasNext() == false) {
+      if (!iter.hasNext()) {
         return true;
       }
       Map.Entry<String, FileMetaData> next = iter.next();
       FileMetaData metaData = next.getValue();
       String fileName = next.getKey();
       System.out.println("Create job for: " + fileName);
-      /*Iterator<RawFileChunk> rawFileChunkIterator;
-      try {
-        rawFileChunkIterator = primaryAddres.recvRawFile(fileName, 0, indexName);
-      } catch (Throwable t) {
-        cancel("exc during start", t);
-        throw new NodeCommunicationException("exc during start", t);
-      }*/
-      //current = new CopyOneFile(rawFileChunkIterator, dest, fileName, metaData, copyBuffer);
-      current = new NrtCopyOneFile(publisher.getFileDataInput(fileName), dest, fileName, metaData, copyBuffer);
+      current =
+          new NrtCopyOneFile(
+              replicaDataManager.getFileDataInput(fileName), dest, fileName, metaData, copyBuffer);
     }
     if (current.visit()) {
       System.out.println("Done with: " + current.name);

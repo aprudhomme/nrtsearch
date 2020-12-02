@@ -13,22 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.yelp.nrtsearch.server.luceneserver.nrt;
+package com.yelp.nrtsearch.server.luceneserver.nrt.state;
 
-import com.yelp.nrtsearch.server.luceneserver.NRTReplicaNode;
-import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
-import com.yelp.nrtsearch.server.luceneserver.nrt.state.MergeState.InitialReplicaMergeState;
-import java.io.Closeable;
-import java.util.Set;
+public class ActiveState {
+  public String stateFile;
 
-public interface ReplicaStateManager extends Closeable {
-  ActiveState getCurrentActiveState();
+  public ActiveState() {}
 
-  void initActiveState();
-
-  void startStateUpdates();
-
-  InitialReplicaMergeState startMergeWarming(NRTReplicaNode replicaNode);
-
-  void addWarmedMerges(Set<String> files);
+  public ActiveState(String stateFile) {
+    this.stateFile = stateFile;
+  }
 }

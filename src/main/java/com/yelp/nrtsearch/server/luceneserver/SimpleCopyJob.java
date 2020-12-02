@@ -68,7 +68,7 @@ public class SimpleCopyJob extends CopyJob {
       throw new NodeCommunicationException("exc during start", t);
     }
 
-    //return new CopyOneFile(prev, rawFileChunkIterator);
+    // return new CopyOneFile(prev, rawFileChunkIterator);
     return null;
   }
 
@@ -230,7 +230,7 @@ public class SimpleCopyJob extends CopyJob {
         cancel("exc during start", t);
         throw new NodeCommunicationException("exc during start", t);
       }
-      //current = new CopyOneFile(rawFileChunkIterator, dest, fileName, metaData, copyBuffer);
+      // current = new CopyOneFile(rawFileChunkIterator, dest, fileName, metaData, copyBuffer);
       current = null;
     }
     if (current.visit()) {

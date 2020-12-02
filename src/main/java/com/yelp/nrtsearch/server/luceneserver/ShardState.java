@@ -18,11 +18,15 @@ package com.yelp.nrtsearch.server.luceneserver;
 import com.google.common.annotations.VisibleForTesting;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
-import com.yelp.nrtsearch.server.luceneserver.nrt.NrtPublisher;
+import com.yelp.nrtsearch.server.luceneserver.nrt.PrimaryDataManager;
 import com.yelp.nrtsearch.server.luceneserver.nrt.PrimaryStateManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaDataManager;
 import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaStateManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.s3.PrimaryS3DataManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.s3.ReplicaS3DataManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.zookeeper.PrimaryZkStateManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.zookeeper.ReplicaZkStateManager;
 import com.yelp.nrtsearch.server.utils.HostPort;
-import io.grpc.StatusRuntimeException;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -63,7 +67,6 @@ import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.KeepOnlyLastCommitDeletionPolicy;
 import org.apache.lucene.index.PersistentSnapshotDeletionPolicy;
 import org.apache.lucene.index.SegmentInfos;
@@ -168,11 +171,12 @@ public class ShardState implements Closeable {
       new HashMap<>();
 
   public final String name;
-  //private KeepAlive keepAlive;
+  // private KeepAlive keepAlive;
   // is this shard restored
   private boolean restored;
 
-  private NrtPublisher publisher;
+  private PrimaryDataManager primaryDataManager;
+  private ReplicaDataManager replicaDataManager;
 
   public PrimaryStateManager primaryStateManager;
   public ReplicaStateManager replicaStateManager;
@@ -308,9 +312,11 @@ public class ShardState implements Closeable {
       closeables.add(slm);
       closeables.add(indexDir);
       closeables.add(taxoDir);
+      closeables.add(primaryDataManager);
+      closeables.add(primaryStateManager);
       nrtPrimaryNode = null;
     } else if (nrtReplicaNode != null) {
-      //closeables.add(keepAlive);
+      // closeables.add(keepAlive);
       closeables.add(reopenThreadPrimary);
       closeables.add(searcherManager);
       closeables.add(nrtReplicaNode);
@@ -318,6 +324,8 @@ public class ShardState implements Closeable {
       closeables.add(slm);
       closeables.add(indexDir);
       closeables.add(taxoDir);
+      closeables.add(replicaDataManager);
+      closeables.add(replicaStateManager);
       nrtPrimaryNode = null;
     } else if (writer != null) {
       closeables.add(reopenThread);
@@ -587,7 +595,9 @@ public class ShardState implements Closeable {
     boolean success = false;
 
     try {
-      primaryStateManager = new PrimaryStateManager(indexState.name, shardOrd, primaryGen);
+      primaryStateManager =
+          new PrimaryZkStateManager(
+              indexState.name, shardOrd, indexState.globalState.getServiceName(), primaryGen);
 
       // we have backups and are not creating a new index
       // use that to load indexes and other state (registeredFields, settings)
@@ -626,7 +636,10 @@ public class ShardState implements Closeable {
         indexDir = origIndexDir;
       }
 
-      publisher = new NrtPublisher(indexState.name, shardOrd, indexDir, primaryStateManager.getCurrentActiveState());
+      primaryDataManager =
+          new PrimaryS3DataManager(
+              indexState.name, shardOrd, indexState.globalState.getServiceName(), indexDir);
+      primaryDataManager.syncInitialActiveState(primaryStateManager.getCurrentActiveState());
 
       // Rather than rely on IndexWriter/TaxonomyWriter to
       // figure out if an index is new or not by passing
@@ -651,11 +664,10 @@ public class ShardState implements Closeable {
       System.out.println("Open mode: " + openMode);
       boolean verbose = indexState.getBooleanSetting("indexVerbose", false);
 
-      IndexWriterConfig writerConfig = indexState.getIndexWriterConfig(openMode, origIndexDir, shardOrd);
+      IndexWriterConfig writerConfig =
+          indexState.getIndexWriterConfig(openMode, origIndexDir, shardOrd);
 
-      writer =
-          new IndexWriter(
-              indexDir, writerConfig);
+      writer = new IndexWriter(indexDir, writerConfig);
       snapshots = (PersistentSnapshotDeletionPolicy) writer.getConfig().getIndexDeletionPolicy();
 
       // NOTE: must do this after writer, because SDP only
@@ -677,7 +689,7 @@ public class ShardState implements Closeable {
               indexState.name,
               hostPort,
               writer,
-              publisher,
+              primaryDataManager,
               primaryStateManager,
               0,
               primaryGen,
@@ -693,7 +705,7 @@ public class ShardState implements Closeable {
               },
               verbose ? System.out : new PrintStream(OutputStream.nullOutputStream()));
 
-      //primaryStateManager.start(nrtPrimaryNode);
+      // primaryStateManager.start(nrtPrimaryNode);
 
       // nocommit this isn't used?
       searcherManager =
@@ -850,7 +862,9 @@ public class ShardState implements Closeable {
     // nocommit share code better w/ start and startPrimary!
     boolean success = false;
     try {
-      replicaStateManager = new ReplicaStateManager(indexState.name, shardOrd);
+      replicaStateManager =
+          new ReplicaZkStateManager(
+              indexState.name, shardOrd, indexState.globalState.getServiceName());
 
       if (indexState.saveLoadState == null) {
         indexState.initSaveLoadState();
@@ -877,24 +891,21 @@ public class ShardState implements Closeable {
         indexDir = origIndexDir;
       }
 
-      publisher = new NrtPublisher(indexState.name, shardOrd, indexDir, replicaStateManager.getCurrentActiveState());
+      replicaDataManager =
+          new ReplicaS3DataManager(
+              indexState.name, shardOrd, indexState.globalState.getServiceName(), indexDir);
+      replicaDataManager.syncInitialActiveState(replicaStateManager.getCurrentActiveState());
 
       manager = null;
       nrtPrimaryNode = null;
 
       boolean verbose = indexState.getBooleanSetting("indexVerbose", false);
 
-      HostPort hostPort =
-          new HostPort(
-              indexState.globalState.getHostName(), indexState.globalState.getReplicationPort());
       nrtReplicaNode =
           new NRTReplicaNode(
-              indexState.name,
-              primaryAddress,
-              hostPort,
               REPLICA_ID,
               indexDir,
-              publisher,
+              replicaDataManager,
               replicaStateManager,
               new SearcherFactory() {
                 @Override
@@ -927,8 +938,8 @@ public class ShardState implements Closeable {
               }
             }
           });
-      //keepAlive = new KeepAlive(this);
-      //new Thread(keepAlive, "KeepAlive").start();
+      // keepAlive = new KeepAlive(this);
+      // new Thread(keepAlive, "KeepAlive").start();
       success = true;
     } finally {
       if (!success) {

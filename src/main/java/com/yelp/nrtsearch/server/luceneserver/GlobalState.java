@@ -81,6 +81,8 @@ public class GlobalState implements Closeable, Restorable {
   private final ExecutorService indexService;
   private final ThreadPoolExecutor searchThreadPoolExecutor;
 
+  private final String serviceName;
+
   public GlobalState(LuceneServerConfiguration luceneServerConfiguration) throws IOException {
     this.nodeName = luceneServerConfiguration.getNodeName();
     this.stateDir = Paths.get(luceneServerConfiguration.getStateDir());
@@ -90,6 +92,7 @@ public class GlobalState implements Closeable, Restorable {
     this.replicationPort = luceneServerConfiguration.getReplicationPort();
     this.replicaReplicationPortPingInterval =
         luceneServerConfiguration.getReplicaReplicationPortPingInterval();
+    this.serviceName = luceneServerConfiguration.getServiceName();
     this.threadPoolConfiguration = luceneServerConfiguration.getThreadPoolConfiguration();
     if (Files.exists(stateDir) == false) {
       Files.createDirectories(stateDir);
@@ -128,6 +131,10 @@ public class GlobalState implements Closeable, Restorable {
   public synchronized void setStateDir(Path source) throws IOException {
     restoreDir(source, stateDir);
     loadIndexNames();
+  }
+
+  public String getServiceName() {
+    return serviceName;
   }
 
   // need to call this first time LuceneServer comes up and upon StartIndex with restore

@@ -15,20 +15,20 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.nrt;
 
-import com.yelp.nrtsearch.server.luceneserver.NRTReplicaNode;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
-import com.yelp.nrtsearch.server.luceneserver.nrt.state.MergeState.InitialReplicaMergeState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
 import java.io.Closeable;
-import java.util.Set;
+import java.io.IOException;
+import java.util.Map;
+import org.apache.lucene.replicator.nrt.FileMetaData;
+import org.apache.lucene.store.DataInput;
 
-public interface ReplicaStateManager extends Closeable {
-  ActiveState getCurrentActiveState();
+public interface ReplicaDataManager extends Closeable {
+  void syncInitialActiveState(ActiveState activeState) throws IOException;
 
-  void initActiveState();
+  Map<String, FileMetaData> getInitialFiles() throws IOException;
 
-  void startStateUpdates();
+  DataInput getFileDataInput(String fileName) throws IOException;
 
-  InitialReplicaMergeState startMergeWarming(NRTReplicaNode replicaNode);
-
-  void addWarmedMerges(Set<String> files);
+  NrtPointState getNrtPointForActiveState(ActiveState activeState) throws IOException;
 }
