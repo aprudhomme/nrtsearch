@@ -22,10 +22,12 @@ import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
+import com.yelp.nrtsearch.server.luceneserver.nrt.DataFileNameUtils;
 import com.yelp.nrtsearch.server.luceneserver.nrt.PrimaryDataManager;
 import com.yelp.nrtsearch.server.luceneserver.nrt.StateFileNameUtils;
 import com.yelp.nrtsearch.server.luceneserver.nrt.s3.S3ThreadFactory.S3Thread;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
 import java.io.Closeable;
 import java.io.IOException;
@@ -47,15 +49,16 @@ import org.apache.lucene.util.IOUtils;
 public class PrimaryS3DataManager extends S3DataManager implements PrimaryDataManager {
   private final ThreadPoolExecutor mergeThreadPool;
   private final ThreadPoolExecutor publishThreadPool;
+  private final String ephemeralId;
 
-  private Map<String, FileMetaData> lastPublishedFiles;
-  private NrtPointState lastPublishedNrtPoint;
-
-  private final Map<String, FileMetaData> pendingMergeFiles = new HashMap<>();
+  private Map<String, NrtFileMetaData> lastPublishedFiles;
+  private final Map<String, NrtFileMetaData> pendingMergeFiles = new HashMap<>();
 
   public PrimaryS3DataManager(
-      String indexName, int shardOrd, String serviceName, Directory directory) throws IOException {
+      String indexName, int shardOrd, String serviceName, Directory directory, String ephemeralId)
+      throws IOException {
     super(indexName, shardOrd, serviceName, directory);
+    this.ephemeralId = ephemeralId;
     mergeThreadPool =
         (ThreadPoolExecutor)
             Executors.newFixedThreadPool(4, new S3ThreadFactory(this::getS3Client));
@@ -69,20 +72,16 @@ public class PrimaryS3DataManager extends S3DataManager implements PrimaryDataMa
     NrtPointState pointState = fetchActiveStateNrtPoint(activeState);
     syncInitialNrtPoint(pointState);
     if (pointState != null) {
-      lastPublishedFiles = pointState.getCopyState().files;
-      lastPublishedNrtPoint = pointState;
+      lastPublishedFiles = pointState.files;
     } else {
       lastPublishedFiles = Collections.emptyMap();
-      lastPublishedNrtPoint = null;
     }
   }
 
   @Override
-  public synchronized void publishNrtPoint(CopyState copyState) throws IOException {
-    NrtPointState pointState = new NrtPointState(copyState);
-    if (pointState.equals(lastPublishedNrtPoint)) {
-      System.out.println("Already published state, skipping: " + pointState);
-    }
+  public synchronized void publishNrtPoint(CopyState copyState, long timestamp) throws IOException {
+    FilesAndPublishFiles filesAndPublishFiles = getFilesAndPublishFiles(copyState, timestamp);
+    NrtPointState pointState = new NrtPointState(copyState, filesAndPublishFiles.files);
 
     String stateStr = MAPPER.writeValueAsString(pointState);
     System.out.println("State: " + stateStr);
@@ -91,16 +90,16 @@ public class PrimaryS3DataManager extends S3DataManager implements PrimaryDataMa
     getS3Client()
         .putObject(
             getBaseBucket(),
-            getStateBasePath() + StateFileNameUtils.getStateFileName(pointState),
+            getStateBasePath()
+                + StateFileNameUtils.getStateFileName(pointState, ephemeralId, timestamp),
             stateStr);
 
-    Map<String, FileMetaData> filesToPublish = getFilesToPublish(copyState);
+    Map<String, NrtFileMetaData> filesToPublish = filesAndPublishFiles.publishFiles;
     System.out.println("Files to upload: " + filesToPublish.keySet());
     // upload files
     parallelPublishFiles(filesToPublish, publishThreadPool);
 
-    lastPublishedFiles = copyState.files;
-    lastPublishedNrtPoint = pointState;
+    lastPublishedFiles = pointState.files;
 
     synchronized (pendingMergeFiles) {
       for (String file : filesToPublish.keySet()) {
@@ -109,22 +108,33 @@ public class PrimaryS3DataManager extends S3DataManager implements PrimaryDataMa
     }
   }
 
-  private Map<String, FileMetaData> getFilesToPublish(CopyState copyState) {
-    Map<String, FileMetaData> copyMap = new HashMap<>();
+  private static class FilesAndPublishFiles {
+    public Map<String, NrtFileMetaData> files;
+    public Map<String, NrtFileMetaData> publishFiles;
+  }
+
+  private FilesAndPublishFiles getFilesAndPublishFiles(CopyState copyState, long timestamp) {
+    FilesAndPublishFiles fapf = new FilesAndPublishFiles();
+    fapf.files = new HashMap<>();
+    fapf.publishFiles = new HashMap<>();
     synchronized (pendingMergeFiles) {
       for (Map.Entry<String, FileMetaData> entry : copyState.files.entrySet()) {
-        if (!lastPublishedFiles.containsKey(entry.getKey())) {
-          if (!pendingMergeFiles.containsKey(entry.getKey())) {
-            copyMap.put(entry.getKey(), entry.getValue());
-          }
+        NrtFileMetaData metaData = lastPublishedFiles.get(entry.getKey());
+        if (metaData == null) {
+          metaData = pendingMergeFiles.get(entry.getKey());
         }
+        if (metaData == null) {
+          metaData = new NrtFileMetaData(entry.getValue(), ephemeralId, timestamp);
+          fapf.publishFiles.put(entry.getKey(), metaData);
+        }
+        fapf.files.put(entry.getKey(), metaData);
       }
     }
-    return copyMap;
+    return fapf;
   }
 
   @Override
-  public void publishMergeFiles(Map<String, FileMetaData> files) throws IOException {
+  public void publishMergeFiles(Map<String, NrtFileMetaData> files) throws IOException {
     System.out.println("Publishing merge files: " + files.keySet());
     parallelPublishFiles(files, mergeThreadPool);
     synchronized (pendingMergeFiles) {
@@ -132,12 +142,13 @@ public class PrimaryS3DataManager extends S3DataManager implements PrimaryDataMa
     }
   }
 
-  private void parallelPublishFiles(Map<String, FileMetaData> files, ThreadPoolExecutor threadPool)
-      throws IOException {
+  private void parallelPublishFiles(
+      Map<String, NrtFileMetaData> files, ThreadPoolExecutor threadPool) throws IOException {
     List<PublishJob> jobList = new ArrayList<>(files.size());
     try {
-      for (Map.Entry<String, FileMetaData> entry : files.entrySet()) {
-        String key = getDataBasePath() + entry.getKey();
+      for (Map.Entry<String, NrtFileMetaData> entry : files.entrySet()) {
+        String key =
+            getDataBasePath() + DataFileNameUtils.getDataFileName(entry.getValue(), entry.getKey());
         IndexInput fileInput = getDirectory().openInput(entry.getKey(), IOContext.DEFAULT);
         PublishJob job = new PublishJob(key, entry.getValue().length, fileInput);
         jobList.add(job);

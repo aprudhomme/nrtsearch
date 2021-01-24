@@ -16,6 +16,7 @@
 package com.yelp.nrtsearch.server.luceneserver.nrt;
 
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
 import java.io.Closeable;
 import java.io.IOException;
@@ -28,7 +29,7 @@ public interface ReplicaDataManager extends Closeable {
 
   Map<String, FileMetaData> getInitialFiles() throws IOException;
 
-  DataInput getFileDataInput(String fileName) throws IOException;
+  DataInput getFileDataInput(String fileName, NrtFileMetaData metaData) throws IOException;
 
   NrtPointState getNrtPointForActiveState(ActiveState activeState) throws IOException;
 }

@@ -638,7 +638,11 @@ public class ShardState implements Closeable {
 
       primaryDataManager =
           new PrimaryS3DataManager(
-              indexState.name, shardOrd, indexState.globalState.getServiceName(), indexDir);
+              indexState.name,
+              shardOrd,
+              indexState.globalState.getServiceName(),
+              indexDir,
+              primaryStateManager.ephemeralId());
       primaryDataManager.syncInitialActiveState(primaryStateManager.getCurrentActiveState());
 
       // Rather than rely on IndexWriter/TaxonomyWriter to

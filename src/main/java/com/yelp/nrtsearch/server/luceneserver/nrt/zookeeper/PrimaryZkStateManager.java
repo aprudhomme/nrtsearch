@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.lucene.replicator.nrt.CopyState;
-import org.apache.lucene.replicator.nrt.FileMetaData;
 import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
 import org.apache.zookeeper.AsyncCallback.DataCallback;
 import org.apache.zookeeper.AsyncCallback.StatCallback;
@@ -207,9 +206,9 @@ public class PrimaryZkStateManager extends ZkStateManager implements PrimaryStat
   }
 
   @Override
-  public synchronized void updateActiveStateWithCopyState(CopyState copyState) {
+  public synchronized void updateActiveStateWithCopyState(CopyState copyState, long timestamp) {
     // maybe verify this is a newer state?
-    String stateString = StateFileNameUtils.getStateFileName(copyState);
+    String stateString = StateFileNameUtils.getStateFileName(copyState, ephemeralId(), timestamp);
     ActiveState newActiveState = new ActiveState(stateString);
     this.activeState = newActiveState;
     updateActiveState(newActiveState);
@@ -425,7 +424,7 @@ public class PrimaryZkStateManager extends ZkStateManager implements PrimaryStat
   }
 
   @Override
-  public void warmMergeFiles(Map<String, FileMetaData> files) {
+  public void warmMergeFiles(Map<String, NrtFileMetaData> files) {
     addMergeFiles(files);
     while (!areMergesCompleted(files)) {
       System.out.println("Waiting for merges to warm");
@@ -437,18 +436,21 @@ public class PrimaryZkStateManager extends ZkStateManager implements PrimaryStat
     }
   }
 
-  private synchronized void addMergeFiles(Map<String, FileMetaData> files) {
+  @Override
+  public String ephemeralId() {
+    return ephemeralId.toString();
+  }
+
+  private synchronized void addMergeFiles(Map<String, NrtFileMetaData> files) {
     MergeState newMergeState = new MergeState(localMergeState);
-    for (Map.Entry<String, FileMetaData> entry : files.entrySet()) {
-      newMergeState.activeMerges.put(entry.getKey(), new NrtFileMetaData(entry.getValue()));
-    }
+    newMergeState.activeMerges.putAll(files);
     localMergeState = newMergeState;
     updateMergeState(newMergeState);
   }
 
-  private synchronized boolean areMergesCompleted(Map<String, FileMetaData> files) {
+  private synchronized boolean areMergesCompleted(Map<String, NrtFileMetaData> files) {
     for (Map.Entry<String, ReplicaState> replicaEntry : replicaStateMap.entrySet()) {
-      for (Map.Entry<String, FileMetaData> entry : files.entrySet()) {
+      for (Map.Entry<String, NrtFileMetaData> entry : files.entrySet()) {
         if (!replicaEntry.getValue().warmedMerges.contains(entry.getKey())) {
           System.out.println(
               "Replica " + replicaEntry.getKey() + " has not warmed file: " + entry.getKey());
@@ -458,7 +460,7 @@ public class PrimaryZkStateManager extends ZkStateManager implements PrimaryStat
     }
     System.out.println("Removing pending merges");
     MergeState newMergeState = new MergeState(localMergeState);
-    for (Map.Entry<String, FileMetaData> entry : files.entrySet()) {
+    for (Map.Entry<String, NrtFileMetaData> entry : files.entrySet()) {
       newMergeState.activeMerges.remove(entry.getKey());
     }
     localMergeState = newMergeState;

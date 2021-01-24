@@ -159,7 +159,7 @@ public class NRTReplicaNode extends ReplicaNode {
   }
 
   public void startMergeTask(Map<String, NrtFileMetaData> files, long primaryGen) {
-    mergeThreadPool.execute(new InitialMergesThread(files, primaryGen));
+    mergeThreadPool.execute(new MergeTask(files, primaryGen));
   }
 
   public CopyJob launchPreCopyFiles(
@@ -183,14 +183,14 @@ public class NRTReplicaNode extends ReplicaNode {
     super.close();
   }
 
-  private class InitialMergesThread implements Runnable {
+  private class MergeTask implements Runnable {
     private final Map<String, FileMetaData> files;
     private final long primaryGen;
 
-    InitialMergesThread(Map<String, NrtFileMetaData> files, long primaryGen) {
+    MergeTask(Map<String, NrtFileMetaData> files, long primaryGen) {
       super();
       this.files = new HashMap<>();
-      files.forEach((k, v) -> this.files.put(k, v.toFileMetaData()));
+      files.forEach(this.files::put);
       this.primaryGen = primaryGen;
     }
 

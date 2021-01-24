@@ -16,16 +16,16 @@
 package com.yelp.nrtsearch.server.luceneserver.nrt;
 
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
 import org.apache.lucene.replicator.nrt.CopyState;
-import org.apache.lucene.replicator.nrt.FileMetaData;
 
 public interface PrimaryDataManager extends Closeable {
   void syncInitialActiveState(ActiveState activeState) throws IOException;
 
-  void publishNrtPoint(CopyState copyState) throws IOException;
+  void publishNrtPoint(CopyState copyState, long timestamp) throws IOException;
 
-  void publishMergeFiles(Map<String, FileMetaData> files) throws IOException;
+  void publishMergeFiles(Map<String, NrtFileMetaData> files) throws IOException;
 }

@@ -15,42 +15,56 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.nrt.state;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData.NrtFileMetaDataDeserializer;
+import java.io.IOException;
 import org.apache.lucene.replicator.nrt.FileMetaData;
 
-public class NrtFileMetaData {
+@JsonDeserialize(using = NrtFileMetaDataDeserializer.class)
+public class NrtFileMetaData extends FileMetaData {
 
-  // Header and footer of the file must be identical between primary and replica to consider the
-  // files equal:
-  public byte[] header;
-  public byte[] footer;
+  public String pid;
+  public long timestamp;
 
-  public long length;
-
-  // Used to ensure no bit flips when copying the file:
-  public long checksum;
-
-  public NrtFileMetaData() {}
-
-  public NrtFileMetaData(FileMetaData fileMetaData) {
-    this.header = fileMetaData.header;
-    this.footer = fileMetaData.footer;
-    this.length = fileMetaData.length;
-    this.checksum = fileMetaData.checksum;
+  public NrtFileMetaData(
+      byte[] header, byte[] footer, long length, long checksum, String pid, long timestamp) {
+    super(header, footer, length, checksum);
+    this.pid = pid;
+    this.timestamp = timestamp;
   }
 
-  public NrtFileMetaData(byte[] header, byte[] footer, long length, long checksum) {
-    this.header = header;
-    this.footer = footer;
-    this.length = length;
-    this.checksum = checksum;
+  public NrtFileMetaData(FileMetaData metaData, String pid, long timestamp) {
+    super(metaData.header, metaData.footer, metaData.length, metaData.checksum);
+    this.pid = pid;
+    this.timestamp = timestamp;
   }
 
-  public FileMetaData toFileMetaData() {
-    return new FileMetaData(header, footer, length, checksum);
-  }
+  public static class NrtFileMetaDataDeserializer extends StdDeserializer<NrtFileMetaData> {
 
-  @Override
-  public String toString() {
-    return "FileMetaData(length=" + length + ")";
+    public NrtFileMetaDataDeserializer() {
+      this(null);
+    }
+
+    public NrtFileMetaDataDeserializer(Class<?> vc) {
+      super(vc);
+    }
+
+    @Override
+    public NrtFileMetaData deserialize(JsonParser jp, DeserializationContext ctxt)
+        throws IOException, JsonProcessingException {
+      JsonNode node = jp.getCodec().readTree(jp);
+      byte[] header = node.get("header").binaryValue();
+      byte[] footer = node.get("footer").binaryValue();
+      long length = node.get("length").longValue();
+      long checksum = node.get("checksum").longValue();
+      String pid = node.get("pid").textValue();
+      long timestamp = node.get("timestamp").longValue();
+      return new NrtFileMetaData(header, footer, length, checksum, pid, timestamp);
+    }
   }
 }

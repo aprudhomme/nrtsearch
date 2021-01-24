@@ -16,15 +16,17 @@
 package com.yelp.nrtsearch.server.luceneserver.nrt;
 
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import java.io.Closeable;
 import java.util.Map;
 import org.apache.lucene.replicator.nrt.CopyState;
-import org.apache.lucene.replicator.nrt.FileMetaData;
 
 public interface PrimaryStateManager extends Closeable {
   ActiveState getCurrentActiveState();
 
-  void updateActiveStateWithCopyState(CopyState copyState);
+  void updateActiveStateWithCopyState(CopyState copyState, long timestamp);
 
-  void warmMergeFiles(Map<String, FileMetaData> files);
+  void warmMergeFiles(Map<String, NrtFileMetaData> files);
+
+  String ephemeralId();
 }

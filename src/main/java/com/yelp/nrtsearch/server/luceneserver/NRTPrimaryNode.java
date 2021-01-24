@@ -19,18 +19,22 @@ import com.yelp.nrtsearch.server.grpc.FilesMetadata;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.luceneserver.nrt.PrimaryDataManager;
 import com.yelp.nrtsearch.server.luceneserver.nrt.PrimaryStateManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.utils.HostPort;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.replicator.nrt.CopyState;
@@ -150,9 +154,10 @@ public class NRTPrimaryNode extends PrimaryNode {
 
   public void publishNrtPoint() throws IOException {
     CopyState copyState = getCopyState();
+    long timestamp = Instant.now().toEpochMilli();
     try {
-      primaryDataManager.publishNrtPoint(copyState);
-      primaryStateManager.updateActiveStateWithCopyState(copyState);
+      primaryDataManager.publishNrtPoint(copyState, timestamp);
+      primaryStateManager.updateActiveStateWithCopyState(copyState, timestamp);
     } finally {
       releaseCopyState(copyState);
     }
@@ -207,10 +212,16 @@ public class NRTPrimaryNode extends PrimaryNode {
   @Override
   protected void preCopyMergedSegmentFiles(SegmentCommitInfo info, Map<String, FileMetaData> files)
       throws IOException {
-
     System.out.println("start merge: " + info.info);
-    primaryDataManager.publishMergeFiles(files);
-    primaryStateManager.warmMergeFiles(files);
+    long timestamp = Instant.now().toEpochMilli();
+    String pid = primaryStateManager.ephemeralId();
+    Map<String, NrtFileMetaData> nrtFiles =
+        files.entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Entry::getKey, e -> new NrtFileMetaData(e.getValue(), pid, timestamp)));
+    primaryDataManager.publishMergeFiles(nrtFiles);
+    primaryStateManager.warmMergeFiles(nrtFiles);
   }
 
   public void setRAMBufferSizeMB(double mb) {

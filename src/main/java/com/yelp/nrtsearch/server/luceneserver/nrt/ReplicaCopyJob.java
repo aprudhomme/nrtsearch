@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.nrt;
 
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -209,11 +210,19 @@ public class ReplicaCopyJob extends CopyJob {
       }
       Map.Entry<String, FileMetaData> next = iter.next();
       FileMetaData metaData = next.getValue();
+      if (!(metaData instanceof NrtFileMetaData)) {
+        throw new IllegalStateException("File meta data must be of type NrtFileMetaData");
+      }
+      NrtFileMetaData nrtFileMetaData = (NrtFileMetaData) metaData;
       String fileName = next.getKey();
       System.out.println("Create job for: " + fileName);
       current =
           new NrtCopyOneFile(
-              replicaDataManager.getFileDataInput(fileName), dest, fileName, metaData, copyBuffer);
+              replicaDataManager.getFileDataInput(fileName, nrtFileMetaData),
+              dest,
+              fileName,
+              metaData,
+              copyBuffer);
     }
     if (current.visit()) {
       System.out.println("Done with: " + current.name);

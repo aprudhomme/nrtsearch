@@ -33,21 +33,18 @@ public final class NrtPointState {
 
   public NrtPointState() {}
 
-  public NrtPointState(CopyState copyState) {
+  public NrtPointState(CopyState copyState, Map<String, NrtFileMetaData> files) {
     version = copyState.version;
     gen = copyState.gen;
     infosBytes = copyState.infosBytes;
     primaryGen = copyState.primaryGen;
-    files =
-        copyState.files.entrySet().stream()
-            .collect(Collectors.toMap(Entry::getKey, v -> new NrtFileMetaData(v.getValue())));
+    this.files = files;
   }
 
   @JsonIgnore
   public CopyState getCopyState() {
     Map<String, FileMetaData> luceneFiles =
-        files.entrySet().stream()
-            .collect(Collectors.toMap(Entry::getKey, v -> v.getValue().toFileMetaData()));
+        files.entrySet().stream().collect(Collectors.toMap(Entry::getKey, Entry::getValue));
     return new CopyState(
         luceneFiles, version, gen, infosBytes, Collections.emptySet(), primaryGen, null);
   }

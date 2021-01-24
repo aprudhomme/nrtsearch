@@ -24,8 +24,10 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.Bucket;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yelp.nrtsearch.server.luceneserver.nrt.DataFileNameUtils;
 import com.yelp.nrtsearch.server.luceneserver.nrt.StateFileNameUtils;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
 import java.io.EOFException;
 import java.io.File;
@@ -41,7 +43,6 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.replicator.nrt.CopyState;
 import org.apache.lucene.replicator.nrt.FileMetaData;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
@@ -132,19 +133,18 @@ public class S3DataManager {
     try (Lock writeLock = getDirectory().obtainLock(IndexWriter.WRITE_LOCK_NAME)) {
       Set<String> remainingFiles = new HashSet<>();
       if (pointState != null) {
-        CopyState activeCopyState = pointState.getCopyState();
         for (String file : getDirectory().listAll()) {
           if (file.equals(IndexWriter.WRITE_LOCK_NAME)) {
             continue;
           }
-          if (!activeCopyState.files.containsKey(file)) {
+          if (!pointState.files.containsKey(file)) {
             System.out.println("Delete Extra file: " + file);
             getDirectory().deleteFile(file);
           } else {
             remainingFiles.add(file);
           }
         }
-        for (Map.Entry<String, FileMetaData> entry : activeCopyState.files.entrySet()) {
+        for (Map.Entry<String, NrtFileMetaData> entry : pointState.files.entrySet()) {
           if (remainingFiles.contains(entry.getKey())
               && identicalFiles(entry.getKey(), entry.getValue())) {
             System.out.println("Local file identical to remote, skipping: " + entry.getKey());
@@ -156,20 +156,20 @@ public class S3DataManager {
             getDirectory()
                 .createOutput(
                     IndexFileNames.fileNameFromGeneration(
-                        IndexFileNames.SEGMENTS, "", activeCopyState.gen),
+                        IndexFileNames.SEGMENTS, "", pointState.gen),
                     IOContext.DEFAULT)) {
-          segmentOutput.writeBytes(activeCopyState.infosBytes, activeCopyState.infosBytes.length);
+          segmentOutput.writeBytes(pointState.infosBytes, pointState.infosBytes.length);
         }
         System.out.println("Final files: " + Arrays.toString(getDirectory().listAll()));
       }
     }
   }
 
-  private void fetchFile(String file, FileMetaData fileMetaData) throws IOException {
+  private void fetchFile(String file, NrtFileMetaData fileMetaData) throws IOException {
     FSDirectory fsDirectory = getFSDirectory();
     File destFile = new File(fsDirectory.getDirectory().toFile(), file);
 
-    String fileKey = getDataBasePath() + file;
+    String fileKey = getDataBasePath() + DataFileNameUtils.getDataFileName(fileMetaData, file);
     getS3Client().getObject(new GetObjectRequest(getBaseBucket(), fileKey), destFile);
     if (!identicalFiles(file, fileMetaData)) {
       throw new IllegalArgumentException(

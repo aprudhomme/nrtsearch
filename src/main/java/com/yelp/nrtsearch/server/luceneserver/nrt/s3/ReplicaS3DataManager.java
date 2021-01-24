@@ -16,12 +16,16 @@
 package com.yelp.nrtsearch.server.luceneserver.nrt.s3;
 
 import com.amazonaws.services.s3.model.S3Object;
+import com.yelp.nrtsearch.server.luceneserver.nrt.DataFileNameUtils;
 import com.yelp.nrtsearch.server.luceneserver.nrt.ReplicaDataManager;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
+import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 import org.apache.lucene.replicator.nrt.FileMetaData;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
@@ -40,7 +44,9 @@ public class ReplicaS3DataManager extends S3DataManager implements ReplicaDataMa
     NrtPointState pointState = fetchActiveStateNrtPoint(activeState);
     syncInitialNrtPoint(pointState);
     if (pointState != null) {
-      initialFiles = pointState.getCopyState().files;
+      initialFiles =
+          pointState.files.entrySet().stream()
+              .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
     } else {
       initialFiles = Collections.emptyMap();
     }
@@ -52,8 +58,8 @@ public class ReplicaS3DataManager extends S3DataManager implements ReplicaDataMa
   }
 
   @Override
-  public DataInput getFileDataInput(String fileName) throws IOException {
-    String fileKey = getDataBasePath() + fileName;
+  public DataInput getFileDataInput(String fileName, NrtFileMetaData metaData) throws IOException {
+    String fileKey = getDataBasePath() + DataFileNameUtils.getDataFileName(metaData, fileName);
     S3Object s3Object = getS3Client().getObject(getBaseBucket(), fileKey);
     return new S3DataInput(s3Object);
   }

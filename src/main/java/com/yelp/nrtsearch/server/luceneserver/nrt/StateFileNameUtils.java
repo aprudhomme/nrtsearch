@@ -17,10 +17,14 @@ package com.yelp.nrtsearch.server.luceneserver.nrt;
 
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.ActiveState;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.lucene.replicator.nrt.CopyState;
 
 public class StateFileNameUtils {
-  private static final String STATE_FILE_FORMAT = "%d_%d_%d_segments";
+  private static final String STATE_FILE_FORMAT = "%d-[%s]-%d-%d-%d";
+  private static final Pattern STATE_FILE_PATTERN =
+      Pattern.compile("^(\\d+)-\\[(.+)]-(\\d+)-(\\d+)-(\\d+)$");
 
   private StateFileNameUtils() {}
 
@@ -28,27 +32,41 @@ public class StateFileNameUtils {
     return activeState.stateFile;
   }
 
-  public static String getStateFileName(NrtPointState pointState) {
+  public static String getStateFileName(NrtPointState pointState, String pid, long timestamp) {
     return String.format(
-        STATE_FILE_FORMAT, pointState.primaryGen, pointState.gen, pointState.version);
+        STATE_FILE_FORMAT,
+        timestamp,
+        pid,
+        pointState.primaryGen,
+        pointState.gen,
+        pointState.version);
   }
 
-  public static String getStateFileName(CopyState copyState) {
-    return String.format(STATE_FILE_FORMAT, copyState.primaryGen, copyState.gen, copyState.version);
+  public static String getStateFileName(CopyState copyState, String pid, long timestamp) {
+    return String.format(
+        STATE_FILE_FORMAT, timestamp, pid, copyState.primaryGen, copyState.gen, copyState.version);
   }
 
   public static class StateInfo {
     public long primaryGen;
     public long gen;
     public long version;
+    public String pid;
+    public long timestamp;
   }
 
   public static StateInfo getStateInfoFromFileName(String fileName) {
-    String[] splits = fileName.split("_");
-    StateInfo info = new StateInfo();
-    info.primaryGen = Long.parseLong(splits[0]);
-    info.gen = Long.parseLong(splits[1]);
-    info.version = Long.parseLong(splits[2]);
-    return info;
+    Matcher matcher = STATE_FILE_PATTERN.matcher(fileName);
+    if (matcher.matches()) {
+      StateInfo info = new StateInfo();
+      info.timestamp = Long.parseLong(matcher.group(1));
+      info.pid = matcher.group(2);
+      info.primaryGen = Long.parseLong(matcher.group(3));
+      info.gen = Long.parseLong(matcher.group(4));
+      info.version = Long.parseLong(matcher.group(5));
+      return info;
+    } else {
+      throw new IllegalArgumentException("Unable to match against state file: " + fileName);
+    }
   }
 }
