@@ -110,9 +110,17 @@ task luceneServerClient(type: CreateStartScripts) {
     classpath = startScripts.classpath
 }
 
+task nrtCleanup(type: CreateStartScripts) {
+    mainClassName = 'com.yelp.nrtsearch.utils.cleanup.NrtCleanup'
+    applicationName = 'nrt-cleanup'
+    outputDir = new File(project.buildDir, 'tmp')
+    classpath = startScripts.classpath
+}
+
 applicationDistribution.into('bin') {
     from(luceneServer)
     from(luceneServerClient)
+    from(nrtCleanup)
     fileMode = 0755
 }
 
