@@ -121,6 +121,18 @@ service LuceneServer {
     };
 
     }
+
+    rpc explain (ExplainRequest) returns (ExplainResponse) {
+        option (google.api.http) = {
+            post: "/v1/explain"
+            body: "*"
+            additional_bindings {
+                get: "/v1/explain/{indexName}"
+            }
+        };
+
+    }
+
     /* Search */
     rpc search (SearchRequest) returns (SearchResponse) {
         option (google.api.http) = {
@@ -576,6 +588,30 @@ message StatsResponse {
     Taxonomy taxonomy = 6; //Taxonomy(facets) stats
     repeated Searcher searchers = 7; //Searcher stats
     Searcher currentSearcher = 8; //Current Searcher stats
+}
+
+message ExplainRequest {
+    string indexName = 1;
+    string id = 2;
+    Query query = 3;
+}
+
+message ExplainResponse {
+    message ExplanationValue {
+        int32 intValue = 1;
+        int64 longValue = 2;
+        float floatValue = 3;
+        double doubleValue = 4;
+    }
+
+    message Explanation {
+        ExplanationValue value = 1;
+        string description = 2;
+        repeated Explanation details = 3;
+    }
+
+    bool matched = 1;
+    Explanation explanation = 2;
 }
 
 message Taxonomy {

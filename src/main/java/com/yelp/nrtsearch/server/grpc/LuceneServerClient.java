@@ -254,6 +254,19 @@ public class LuceneServerClient {
     logger.info("Server returned sequence id: " + response);
   }
 
+  public void explain(Path filePath) throws IOException {
+    ExplainRequest explainRequest =
+        new LuceneServerClientBuilder.ExplainClientBuilder().buildRequest(filePath);
+    ExplainResponse response;
+    try {
+      response = blockingStub.explain(explainRequest);
+    } catch (StatusRuntimeException e) {
+      logger.warn("RPC failed: {}", e.getStatus());
+      return;
+    }
+    logger.info("Server returned : " + response.toString());
+  }
+
   public void search(Path filePath) throws IOException {
     SearchRequest searchRequest =
         new LuceneServerClientBuilder.SearchClientBuilder().buildRequest(filePath);

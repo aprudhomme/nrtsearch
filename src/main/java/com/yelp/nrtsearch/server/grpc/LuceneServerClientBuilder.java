@@ -225,6 +225,27 @@ public interface LuceneServerClientBuilder<T> {
     }
   }
 
+  class ExplainClientBuilder implements LuceneServerClientBuilder<ExplainRequest> {
+    private static final Logger logger = Logger.getLogger(ExplainClientBuilder.class.getName());
+
+    @Override
+    public ExplainRequest buildRequest(Path filePath) throws IOException {
+      String jsonStr = Files.readString(filePath);
+      logger.info(String.format("Converting fields %s to proto ExplainRequest", jsonStr));
+      ExplainRequest.Builder explainRequestBuilder = ExplainRequest.newBuilder();
+      try {
+        JsonFormat.parser().merge(jsonStr, explainRequestBuilder);
+      } catch (InvalidProtocolBufferException e) {
+        throw new RuntimeException(e);
+      }
+      ExplainRequest explainRequest = explainRequestBuilder.build();
+      logger.info(
+          String.format(
+              "jsonStr converted to proto ExplainRequest: \n%s", explainRequest.toString()));
+      return explainRequest;
+    }
+  }
+
   class DeleteDocumentsBuilder implements LuceneServerClientBuilder<AddDocumentRequest> {
     private static final Logger logger = Logger.getLogger(DeleteDocumentsBuilder.class.getName());
 

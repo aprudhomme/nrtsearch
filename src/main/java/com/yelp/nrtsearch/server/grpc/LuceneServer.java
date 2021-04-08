@@ -32,38 +32,8 @@ import com.google.protobuf.util.JsonFormat;
 import com.yelp.nrtsearch.LuceneServerModule;
 import com.yelp.nrtsearch.server.MetricsRequestHandler;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
+import com.yelp.nrtsearch.server.luceneserver.*;
 import com.yelp.nrtsearch.server.luceneserver.AddDocumentHandler.DocumentIndexer;
-import com.yelp.nrtsearch.server.luceneserver.AddReplicaHandler;
-import com.yelp.nrtsearch.server.luceneserver.BackupIndexRequestHandler;
-import com.yelp.nrtsearch.server.luceneserver.BuildSuggestHandler;
-import com.yelp.nrtsearch.server.luceneserver.CopyFilesHandler;
-import com.yelp.nrtsearch.server.luceneserver.CreateSnapshotHandler;
-import com.yelp.nrtsearch.server.luceneserver.DeleteAllDocumentsHandler;
-import com.yelp.nrtsearch.server.luceneserver.DeleteByQueryHandler;
-import com.yelp.nrtsearch.server.luceneserver.DeleteDocumentsHandler;
-import com.yelp.nrtsearch.server.luceneserver.DeleteIndexBackupHandler;
-import com.yelp.nrtsearch.server.luceneserver.DeleteIndexHandler;
-import com.yelp.nrtsearch.server.luceneserver.GetNodesInfoHandler;
-import com.yelp.nrtsearch.server.luceneserver.GetStateHandler;
-import com.yelp.nrtsearch.server.luceneserver.GlobalState;
-import com.yelp.nrtsearch.server.luceneserver.IndexState;
-import com.yelp.nrtsearch.server.luceneserver.LiveSettingsHandler;
-import com.yelp.nrtsearch.server.luceneserver.NewNRTPointHandler;
-import com.yelp.nrtsearch.server.luceneserver.RecvCopyStateHandler;
-import com.yelp.nrtsearch.server.luceneserver.RegisterFieldsHandler;
-import com.yelp.nrtsearch.server.luceneserver.ReleaseSnapshotHandler;
-import com.yelp.nrtsearch.server.luceneserver.ReplicaCurrentSearchingVersionHandler;
-import com.yelp.nrtsearch.server.luceneserver.RestoreStateHandler;
-import com.yelp.nrtsearch.server.luceneserver.SearchHandler;
-import com.yelp.nrtsearch.server.luceneserver.SettingsHandler;
-import com.yelp.nrtsearch.server.luceneserver.ShardState;
-import com.yelp.nrtsearch.server.luceneserver.StartIndexHandler;
-import com.yelp.nrtsearch.server.luceneserver.StatsRequestHandler;
-import com.yelp.nrtsearch.server.luceneserver.StopIndexHandler;
-import com.yelp.nrtsearch.server.luceneserver.SuggestLookupHandler;
-import com.yelp.nrtsearch.server.luceneserver.UpdateFieldsHandler;
-import com.yelp.nrtsearch.server.luceneserver.UpdateSuggestHandler;
-import com.yelp.nrtsearch.server.luceneserver.WriteNRTPointHandler;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.rescore.RescorerCreator;
@@ -844,6 +814,41 @@ public class LuceneServer {
                 .withDescription(
                     "error while trying to retrieve stats for index: "
                         + statsRequest.getIndexName())
+                .augmentDescription(e.getMessage())
+                .asRuntimeException());
+      }
+    }
+
+    @Override
+    public void explain(
+        ExplainRequest explainRequest,
+        StreamObserver<ExplainResponse> explainResponseStreamObserver) {
+      try {
+        IndexState indexState = globalState.getIndex(explainRequest.getIndexName());
+        ExplainHandler explainHandler = new ExplainHandler();
+        ExplainResponse reply = explainHandler.handle(indexState, explainRequest);
+        explainResponseStreamObserver.onNext(reply);
+        explainResponseStreamObserver.onCompleted();
+      } catch (IOException e) {
+        logger.warn(
+            "error while trying to read index state dir for indexName: "
+                + explainRequest.getIndexName(),
+            e);
+        explainResponseStreamObserver.onError(
+            Status.INTERNAL
+                .withDescription(
+                    "error while trying to read index state dir for indexName: "
+                        + explainRequest.getIndexName())
+                .augmentDescription(e.getMessage())
+                .withCause(e)
+                .asRuntimeException());
+      } catch (Exception e) {
+        explainResponseStreamObserver.onError(
+            Status.UNKNOWN
+                .withDescription(
+                    String.format(
+                        "error while trying to execute explain for index %s, id %s.",
+                        explainRequest.getIndexName(), explainRequest.getId()))
                 .augmentDescription(e.getMessage())
                 .asRuntimeException());
       }
