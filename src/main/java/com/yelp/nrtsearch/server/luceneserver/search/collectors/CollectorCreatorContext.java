@@ -18,6 +18,7 @@ package com.yelp.nrtsearch.server.luceneserver.search.collectors;
 import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
 import com.yelp.nrtsearch.server.luceneserver.ShardState;
+import com.yelp.nrtsearch.server.luceneserver.doc.SearcherDocLookup;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import java.util.Map;
 
@@ -30,6 +31,7 @@ public class CollectorCreatorContext {
   private final IndexState indexState;
   private final ShardState shardState;
   private final Map<String, FieldDef> queryFields;
+  private final SearcherDocLookup searcherDocLookup;
 
   /**
    * Constructor.
@@ -43,11 +45,13 @@ public class CollectorCreatorContext {
       SearchRequest request,
       IndexState indexState,
       ShardState shardState,
-      Map<String, FieldDef> queryFields) {
+      Map<String, FieldDef> queryFields,
+      SearcherDocLookup searcherDocLookup) {
     this.request = request;
     this.indexState = indexState;
     this.shardState = shardState;
     this.queryFields = queryFields;
+    this.searcherDocLookup = searcherDocLookup;
   }
 
   /** Get search request */
@@ -68,5 +72,9 @@ public class CollectorCreatorContext {
   /** Get all possible field usable for this query */
   public Map<String, FieldDef> getQueryFields() {
     return queryFields;
+  }
+
+  public SearcherDocLookup getSearcherDocLookup() {
+    return searcherDocLookup;
   }
 }

@@ -36,7 +36,7 @@ import org.apache.lucene.index.LeafReaderContext;
 public class SegmentDocLookup implements Map<String, LoadedDocValues<?>> {
 
   private final IndexState indexState;
-  private final LeafReaderContext context;
+  private LeafReaderContext context;
   private final Map<String, LoadedDocValues<?>> loaderCache = new HashMap<>();
 
   private int docId = -1;
@@ -44,6 +44,15 @@ public class SegmentDocLookup implements Map<String, LoadedDocValues<?>> {
   public SegmentDocLookup(IndexState indexState, LeafReaderContext context) {
     this.indexState = indexState;
     this.context = context;
+  }
+
+  public void setContext(LeafReaderContext context) {
+    if (context == this.context) {
+      return;
+    }
+    this.context = context;
+    loaderCache.clear();
+    docId = -1;
   }
 
   /**

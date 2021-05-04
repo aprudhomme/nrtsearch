@@ -92,6 +92,7 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
     private final NumericDocValues docValues;
     private final LongFunction<T> decoder;
     private T value;
+    private int currentId = -1;
 
     SingleNumericValue(NumericDocValues docValues, LongFunction<T> decoder) {
       this.docValues = docValues;
@@ -100,10 +101,13 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
 
     @Override
     public void setDocId(int docID) throws IOException {
-      if (docValues.advanceExact(docID)) {
-        value = decoder.apply(docValues.longValue());
-      } else {
-        value = null;
+      if (docID != currentId) {
+        if (docValues.advanceExact(docID)) {
+          value = decoder.apply(docValues.longValue());
+        } else {
+          value = null;
+        }
+        currentId = docID;
       }
     }
 
@@ -197,6 +201,7 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
     private final SortedNumericDocValues docValues;
     private final LongFunction<T> decoder;
     private final ArrayList<T> values = new ArrayList<>();
+    private int currentId = -1;
 
     SortedNumericValues(SortedNumericDocValues docValues, LongFunction<T> decoder) {
       this.docValues = docValues;
@@ -205,15 +210,18 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
 
     @Override
     public void setDocId(int docID) throws IOException {
-      values.clear();
-      if (docValues.advanceExact(docID)) {
-        int count = docValues.docValueCount();
-        values.ensureCapacity(count);
-        for (int i = 0; i < count; ++i) {
-          values.add(decoder.apply(docValues.nextValue()));
+      if (docID != currentId) {
+        values.clear();
+        if (docValues.advanceExact(docID)) {
+          int count = docValues.docValueCount();
+          values.ensureCapacity(count);
+          for (int i = 0; i < count; ++i) {
+            values.add(decoder.apply(docValues.nextValue()));
+          }
         }
+        values.trimToSize();
+        currentId = docID;
       }
-      values.trimToSize();
     }
 
     @Override
@@ -345,6 +353,7 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
   public static final class ObjectJsonDocValues extends LoadedDocValues<Map<String, Object>> {
     private final BinaryDocValues docValues;
     private List<Map<String, Object>> value;
+    private int currentId = -1;
 
     public ObjectJsonDocValues(BinaryDocValues docValues) {
       this.docValues = docValues;
@@ -352,11 +361,14 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
 
     @Override
     public void setDocId(int docID) throws IOException {
-      if (docValues.advanceExact(docID)) {
-        String jsonString = STRING_DECODER.apply(docValues.binaryValue());
-        value = gson.fromJson(jsonString, List.class);
-      } else {
-        value = null;
+      if (docID != currentId) {
+        if (docValues.advanceExact(docID)) {
+          String jsonString = STRING_DECODER.apply(docValues.binaryValue());
+          value = gson.fromJson(jsonString, List.class);
+        } else {
+          value = null;
+        }
+        currentId = docID;
       }
     }
 
@@ -388,6 +400,7 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
     private final BinaryDocValues docValues;
     private final Function<BytesRef, T> decoder;
     private T value;
+    private int currentId = -1;
 
     public SingleBinaryBase(BinaryDocValues docValues, Function<BytesRef, T> decoder) {
       this.docValues = docValues;
@@ -396,10 +409,13 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
 
     @Override
     public void setDocId(int docID) throws IOException {
-      if (docValues.advanceExact(docID)) {
-        value = decoder.apply(docValues.binaryValue());
-      } else {
-        value = null;
+      if (docID != currentId) {
+        if (docValues.advanceExact(docID)) {
+          value = decoder.apply(docValues.binaryValue());
+        } else {
+          value = null;
+        }
+        currentId = docID;
       }
     }
 
@@ -450,6 +466,7 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
   public static final class SortedStrings extends LoadedDocValues<String> {
     private final SortedSetDocValues docValues;
     private final ArrayList<String> values = new ArrayList<>();
+    private int currentId = -1;
 
     public SortedStrings(SortedSetDocValues docValues) {
       this.docValues = docValues;
@@ -457,15 +474,18 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
 
     @Override
     public void setDocId(int docID) throws IOException {
-      values.clear();
-      if (docValues.advanceExact(docID)) {
-        long ord = docValues.nextOrd();
-        while (ord != SortedSetDocValues.NO_MORE_ORDS) {
-          values.add(docValues.lookupOrd(ord).utf8ToString());
-          ord = docValues.nextOrd();
+      if (currentId != docID) {
+        values.clear();
+        if (docValues.advanceExact(docID)) {
+          long ord = docValues.nextOrd();
+          while (ord != SortedSetDocValues.NO_MORE_ORDS) {
+            values.add(docValues.lookupOrd(ord).utf8ToString());
+            ord = docValues.nextOrd();
+          }
         }
+        values.trimToSize();
+        currentId = docID;
       }
-      values.trimToSize();
     }
 
     @Override

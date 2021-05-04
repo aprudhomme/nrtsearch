@@ -25,6 +25,8 @@ import com.yelp.nrtsearch.server.grpc.VirtualField;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
 import com.yelp.nrtsearch.server.luceneserver.QueryNodeMapper;
 import com.yelp.nrtsearch.server.luceneserver.ShardState;
+import com.yelp.nrtsearch.server.luceneserver.doc.DocLookup;
+import com.yelp.nrtsearch.server.luceneserver.doc.SearcherDocLookup;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.VirtualFieldDef;
@@ -106,6 +108,8 @@ public class SearchRequestProcessor {
         .setStartHit(searchRequest.getStartHit())
         .setTopHits(searchRequest.getTopHits());
 
+    SearcherDocLookup searcherDocLookup = new SearcherDocLookup(indexState);
+
     Map<String, FieldDef> queryVirtualFields = getVirtualFields(shardState, searchRequest);
 
     Map<String, FieldDef> queryFields = new HashMap<>(queryVirtualFields);
@@ -115,7 +119,7 @@ public class SearchRequestProcessor {
     Map<String, FieldDef> retrieveFields = getRetrieveFields(searchRequest, queryFields);
     contextBuilder.setRetrieveFields(Collections.unmodifiableMap(retrieveFields));
 
-    Query query = extractQuery(indexState, searchRequest);
+    Query query = extractQuery(indexState, searchRequest, searcherDocLookup);
     if (profileResult != null) {
       profileResult.setParsedQuery(query.toString());
     }
@@ -137,11 +141,13 @@ public class SearchRequestProcessor {
     contextBuilder.setQuery(query);
 
     CollectorCreatorContext collectorCreatorContext =
-        new CollectorCreatorContext(searchRequest, indexState, shardState, queryFields);
+        new CollectorCreatorContext(
+            searchRequest, indexState, shardState, queryFields, searcherDocLookup);
     contextBuilder.setCollector(buildDocCollector(collectorCreatorContext));
 
     contextBuilder.setRescorers(
-        getRescorers(indexState, searcherAndTaxonomy.searcher, searchRequest));
+        getRescorers(
+            indexState, searcherAndTaxonomy.searcher, searchRequest, indexState.docLookup));
 
     return contextBuilder.build(true);
   }
@@ -238,7 +244,8 @@ public class SearchRequestProcessor {
    * @param searchRequest request
    * @return lucene query
    */
-  private static Query extractQuery(IndexState state, SearchRequest searchRequest) {
+  private static Query extractQuery(
+      IndexState state, SearchRequest searchRequest, DocLookup lookup) {
     Query q;
     if (!searchRequest.getQueryText().isEmpty()) {
       QueryBuilder queryParser = createQueryParser(state, null);
@@ -252,7 +259,7 @@ public class SearchRequestProcessor {
             String.format("could not parse queryText: %s", queryText));
       }
     } else {
-      q = QUERY_NODE_MAPPER.getQuery(searchRequest.getQuery(), state);
+      q = QUERY_NODE_MAPPER.getQuery(searchRequest.getQuery(), state, lookup);
     }
 
     if (state.hasNestedChildFields()) {
@@ -326,7 +333,7 @@ public class SearchRequestProcessor {
 
   /** Parses rescorers defined in this search request. */
   private static List<RescoreTask> getRescorers(
-      IndexState indexState, IndexSearcher searcher, SearchRequest searchRequest)
+      IndexState indexState, IndexSearcher searcher, SearchRequest searchRequest, DocLookup lookup)
       throws IOException {
 
     List<RescoreTask> rescorers = new ArrayList<>();
@@ -337,7 +344,8 @@ public class SearchRequestProcessor {
 
       if (rescorer.hasQueryRescorer()) {
         QueryRescorer queryRescorer = rescorer.getQueryRescorer();
-        Query query = QUERY_NODE_MAPPER.getQuery(queryRescorer.getRescoreQuery(), indexState);
+        Query query =
+            QUERY_NODE_MAPPER.getQuery(queryRescorer.getRescoreQuery(), indexState, lookup);
         query = searcher.rewrite(query);
 
         thisRescorer =

@@ -23,14 +23,14 @@ import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.AdditionalCollectorManager;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreatorContext;
 import com.yelp.nrtsearch.server.utils.ScriptParamsUtils;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMaps;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.PriorityQueue;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.Collector;
@@ -70,7 +70,7 @@ public class TermsCollectorManager
         scriptFactory =
             factory.newFactory(
                 ScriptParamsUtils.decodeParams(grpcTermsCollector.getScript().getParamsMap()),
-                context.getIndexState().docLookup);
+                context.getSearcherDocLookup());
         break;
       default:
         throw new IllegalArgumentException(
@@ -90,7 +90,7 @@ public class TermsCollectorManager
 
   @Override
   public CollectorResult reduce(Collection<TermsCollector> collectors) throws IOException {
-    Map<Object, Integer> combinedCounts = combineCounts(collectors);
+    Object2IntMap<Object> combinedCounts = combineCounts(collectors);
     BucketResult.Builder bucketBuilder = BucketResult.newBuilder();
     fillBucketResult(bucketBuilder, combinedCounts);
 
@@ -98,53 +98,56 @@ public class TermsCollectorManager
   }
 
   /** Combine term counts from each parallel collector into a single map */
-  private Map<Object, Integer> combineCounts(Collection<TermsCollector> collectors) {
+  private Object2IntMap<Object> combineCounts(Collection<TermsCollector> collectors) {
     if (collectors.isEmpty()) {
-      return Collections.emptyMap();
+      return Object2IntMaps.EMPTY_MAP;
     }
     Iterator<TermsCollector> iterator = collectors.iterator();
     TermsCollector termsCollector = iterator.next();
-    Map<Object, Integer> totalCountsMap = termsCollector.countsMap;
+    Object2IntOpenHashMap<Object> totalCountsMap = termsCollector.countsMap;
     while (iterator.hasNext()) {
       termsCollector = iterator.next();
-      for (Map.Entry<Object, Integer> entry : termsCollector.countsMap.entrySet()) {
-        totalCountsMap.merge(entry.getKey(), entry.getValue(), Integer::sum);
+      for (Object2IntMap.Entry<Object> entry : termsCollector.countsMap.object2IntEntrySet()) {
+        // for (Map.Entry<Object, Integer> entry : termsCollector.countsMap.entrySet()) {
+        // totalCountsMap.merge(entry.getKey(), entry.getValue(), Integer::sum);
+        totalCountsMap.addTo(entry.getKey(), entry.getIntValue());
       }
     }
     return totalCountsMap;
   }
 
   /** Fill bucket result message based on collected term counts. */
-  private void fillBucketResult(BucketResult.Builder bucketBuilder, Map<Object, Integer> counts) {
+  private void fillBucketResult(BucketResult.Builder bucketBuilder, Object2IntMap<Object> counts) {
     if (counts.size() > 0 && size > 0) {
       // add all map entries into a priority queue, keeping only the top N
-      PriorityQueue<Entry<Object, Integer>> priorityQueue =
+      PriorityQueue<Object2IntMap.Entry<Object>> priorityQueue =
           new PriorityQueue<>(
-              Math.min(counts.size(), size), Map.Entry.comparingByValue(Integer::compare));
+              Math.min(counts.size(), size),
+              Comparator.comparingInt(Object2IntMap.Entry::getIntValue));
 
       int otherCounts = 0;
       int minimumCount = -1;
-      for (Map.Entry<Object, Integer> entry : counts.entrySet()) {
+      for (Object2IntMap.Entry<Object> entry : counts.object2IntEntrySet()) {
         if (priorityQueue.size() < size) {
           priorityQueue.offer(entry);
-          minimumCount = priorityQueue.peek().getValue();
+          minimumCount = priorityQueue.peek().getIntValue();
         } else if (entry.getValue() > minimumCount) {
-          otherCounts += priorityQueue.poll().getValue();
+          otherCounts += priorityQueue.poll().getIntValue();
           priorityQueue.offer(entry);
-          minimumCount = priorityQueue.peek().getValue();
+          minimumCount = priorityQueue.peek().getIntValue();
         } else {
-          otherCounts += entry.getValue();
+          otherCounts += entry.getIntValue();
         }
       }
 
       // the priority queue is a min heap, use a linked list to reverse the order
       LinkedList<Bucket> buckets = new LinkedList<>();
       while (!priorityQueue.isEmpty()) {
-        Map.Entry<Object, Integer> entry = priorityQueue.poll();
+        Object2IntMap.Entry<Object> entry = priorityQueue.poll();
         buckets.addFirst(
             Bucket.newBuilder()
                 .setKey(entry.getKey().toString())
-                .setCount(entry.getValue())
+                .setCount(entry.getIntValue())
                 .build());
       }
       bucketBuilder
@@ -157,7 +160,8 @@ public class TermsCollectorManager
   /** Collector implementation to record term counts generated by a {@link FacetScript}. */
   public class TermsCollector implements Collector {
 
-    Map<Object, Integer> countsMap = new HashMap<>();
+    // Map<Object, Integer> countsMap = new HashMap<>();
+    Object2IntOpenHashMap<Object> countsMap = new Object2IntOpenHashMap<>();
 
     @Override
     public LeafCollector getLeafCollector(LeafReaderContext context) throws IOException {
@@ -192,17 +196,20 @@ public class TermsCollectorManager
         }
       }
 
-      private void processScriptResult(Object scriptResult, Map<Object, Integer> countsMap) {
+      private void processScriptResult(
+          Object scriptResult, Object2IntOpenHashMap<Object> countsMap) {
         if (scriptResult instanceof Iterable) {
           ((Iterable<?>) scriptResult)
               .forEach(
                   v -> {
                     if (v != null) {
-                      countsMap.merge(v, 1, Integer::sum);
+                      countsMap.addTo(v, 1);
+                      // countsMap.merge(v, 1, Integer::sum);
                     }
                   });
         } else {
-          countsMap.merge(scriptResult, 1, Integer::sum);
+          countsMap.addTo(scriptResult, 1);
+          // countsMap.merge(scriptResult, 1, Integer::sum);
         }
       }
     }

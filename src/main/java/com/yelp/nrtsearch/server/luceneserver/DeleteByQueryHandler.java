@@ -37,7 +37,7 @@ public class DeleteByQueryHandler implements Handler<DeleteByQueryRequest, AddDo
 
     List<Query> queryList =
         deleteByQueryRequest.getQueryList().stream()
-            .map(query -> queryNodeMapper.getQuery(query, indexState))
+            .map(query -> queryNodeMapper.getQuery(query, indexState, indexState.docLookup))
             .collect(Collectors.toList());
     try {
       shardState.writer.deleteDocuments(queryList.toArray(new Query[] {}));

@@ -19,6 +19,7 @@ import static com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator.is
 
 import com.yelp.nrtsearch.server.grpc.*;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
+import com.yelp.nrtsearch.server.luceneserver.doc.DocLookup;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.properties.GeoQueryable;
@@ -58,8 +59,9 @@ public class QueryNodeMapper {
               MatchOperator.SHOULD, BooleanClause.Occur.SHOULD,
               MatchOperator.MUST, BooleanClause.Occur.MUST));
 
-  public Query getQuery(com.yelp.nrtsearch.server.grpc.Query query, IndexState state) {
-    Query queryNode = getQueryNode(query, state);
+  public Query getQuery(
+      com.yelp.nrtsearch.server.grpc.Query query, IndexState state, DocLookup lookup) {
+    Query queryNode = getQueryNode(query, state, lookup);
 
     if (query.getBoost() < 0) {
       throw new IllegalArgumentException("Boost must be a positive number");
@@ -81,20 +83,21 @@ public class QueryNodeMapper {
     return builder.build();
   }
 
-  private Query getQueryNode(com.yelp.nrtsearch.server.grpc.Query query, IndexState state) {
+  private Query getQueryNode(
+      com.yelp.nrtsearch.server.grpc.Query query, IndexState state, DocLookup lookup) {
     switch (query.getQueryNodeCase()) {
       case BOOLEANQUERY:
-        return getBooleanQuery(query.getBooleanQuery(), state);
+        return getBooleanQuery(query.getBooleanQuery(), state, lookup);
       case PHRASEQUERY:
         return getPhraseQuery(query.getPhraseQuery());
       case FUNCTIONSCOREQUERY:
-        return getFunctionScoreQuery(query.getFunctionScoreQuery(), state);
+        return getFunctionScoreQuery(query.getFunctionScoreQuery(), state, lookup);
       case TERMQUERY:
         return getTermQuery(query.getTermQuery(), state);
       case TERMINSETQUERY:
         return getTermInSetQuery(query.getTermInSetQuery(), state);
       case DISJUNCTIONMAXQUERY:
-        return getDisjunctionMaxQuery(query.getDisjunctionMaxQuery(), state);
+        return getDisjunctionMaxQuery(query.getDisjunctionMaxQuery(), state, lookup);
       case MATCHQUERY:
         return getMatchQuery(query.getMatchQuery(), state);
       case MATCHPHRASEQUERY:
@@ -108,7 +111,7 @@ public class QueryNodeMapper {
       case GEOPOINTQUERY:
         return getGeoPointQuery(query.getGeoPointQuery(), state);
       case NESTEDQUERY:
-        return getNestedQuery(query.getNestedQuery(), state);
+        return getNestedQuery(query.getNestedQuery(), state, lookup);
       case EXISTSQUERY:
         return getExistsQuery(query.getExistsQuery(), state);
       case GEORADIUSQUERY:
@@ -124,8 +127,8 @@ public class QueryNodeMapper {
   }
 
   private Query getNestedQuery(
-      com.yelp.nrtsearch.server.grpc.NestedQuery nestedQuery, IndexState state) {
-    Query childRawQuery = getQuery(nestedQuery.getQuery(), state);
+      com.yelp.nrtsearch.server.grpc.NestedQuery nestedQuery, IndexState state, DocLookup lookup) {
+    Query childRawQuery = getQuery(nestedQuery.getQuery(), state, lookup);
     Query childQuery =
         new BooleanQuery.Builder()
             .add(
@@ -157,7 +160,9 @@ public class QueryNodeMapper {
   }
 
   private BooleanQuery getBooleanQuery(
-      com.yelp.nrtsearch.server.grpc.BooleanQuery booleanQuery, IndexState state) {
+      com.yelp.nrtsearch.server.grpc.BooleanQuery booleanQuery,
+      IndexState state,
+      DocLookup lookup) {
     BooleanQuery.Builder builder =
         new BooleanQuery.Builder()
             .setMinimumNumberShouldMatch(booleanQuery.getMinimumNumberShouldMatch());
@@ -168,7 +173,7 @@ public class QueryNodeMapper {
         .forEach(
             clause -> {
               com.yelp.nrtsearch.server.grpc.BooleanClause.Occur occur = clause.getOccur();
-              builder.add(getQuery(clause.getQuery(), state), occurMapping.get(occur));
+              builder.add(getQuery(clause.getQuery(), state, lookup), occurMapping.get(occur));
               if (occur != com.yelp.nrtsearch.server.grpc.BooleanClause.Occur.MUST_NOT) {
                 allMustNot.set(false);
               }
@@ -189,15 +194,17 @@ public class QueryNodeMapper {
   }
 
   private FunctionScoreQuery getFunctionScoreQuery(
-      com.yelp.nrtsearch.server.grpc.FunctionScoreQuery functionScoreQuery, IndexState state) {
+      com.yelp.nrtsearch.server.grpc.FunctionScoreQuery functionScoreQuery,
+      IndexState state,
+      DocLookup lookup) {
     ScoreScript.Factory scriptFactory =
         ScriptService.getInstance().compile(functionScoreQuery.getScript(), ScoreScript.CONTEXT);
 
     Map<String, Object> params =
         ScriptParamsUtils.decodeParams(functionScoreQuery.getScript().getParamsMap());
     return new FunctionScoreQuery(
-        getQuery(functionScoreQuery.getQuery(), state),
-        scriptFactory.newFactory(params, state.docLookup));
+        getQuery(functionScoreQuery.getQuery(), state, lookup),
+        scriptFactory.newFactory(params, lookup));
   }
 
   private FunctionMatchQuery getFunctionFilterQuery(
@@ -249,10 +256,12 @@ public class QueryNodeMapper {
   }
 
   private DisjunctionMaxQuery getDisjunctionMaxQuery(
-      com.yelp.nrtsearch.server.grpc.DisjunctionMaxQuery disjunctionMaxQuery, IndexState state) {
+      com.yelp.nrtsearch.server.grpc.DisjunctionMaxQuery disjunctionMaxQuery,
+      IndexState state,
+      DocLookup lookup) {
     List<Query> disjuncts =
         disjunctionMaxQuery.getDisjunctsList().stream()
-            .map(query -> getQuery(query, state))
+            .map(query -> getQuery(query, state, lookup))
             .collect(Collectors.toList());
     return new DisjunctionMaxQuery(disjuncts, disjunctionMaxQuery.getTieBreakerMultiplier());
   }
