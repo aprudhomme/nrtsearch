@@ -25,6 +25,8 @@ import com.yelp.nrtsearch.server.utils.HostPort;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -36,6 +38,10 @@ import org.apache.lucene.replicator.nrt.FileMetaData;
 import org.apache.lucene.replicator.nrt.NodeCommunicationException;
 import org.apache.lucene.replicator.nrt.ReplicaNode;
 import org.apache.lucene.search.SearcherFactory;
+import org.apache.lucene.store.BufferedChecksumIndexInput;
+import org.apache.lucene.store.ByteBuffersDataInput;
+import org.apache.lucene.store.ByteBuffersIndexInput;
+import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.Directory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +81,16 @@ public class NRTReplicaNode extends ReplicaNode {
     start(primaryGen);
   }
 
+  private static class CopyStateAndUserData {
+    final CopyState copyState;
+    final Map<String, String> userData;
+
+    CopyStateAndUserData(CopyState copyState, Map<String, String> userData) {
+      this.copyState = copyState;
+      this.userData = userData;
+    }
+  }
+
   @Override
   protected CopyJob newCopyJob(
       String reason,
@@ -84,6 +100,7 @@ public class NRTReplicaNode extends ReplicaNode {
       CopyJob.OnceDone onceDone)
       throws IOException {
     CopyState copyState;
+    Map<String, String> userData;
 
     // sendMeFiles(?) (we dont need this, just send Index,replica, and request for copy State)
     if (files == null) {
@@ -91,27 +108,38 @@ public class NRTReplicaNode extends ReplicaNode {
       try {
         // Exceptions in here mean something went wrong talking over the socket, which are fine
         // (e.g. primary node crashed):
-        copyState = getCopyStateFromPrimary();
+        CopyStateAndUserData copyStateAndUserData = getCopyStateFromPrimary();
+        copyState = copyStateAndUserData.copyState;
+        userData = copyStateAndUserData.userData;
       } catch (Throwable t) {
         throw new NodeCommunicationException("exc while reading files to copy", t);
       }
       files = copyState.files;
     } else {
       copyState = null;
+      userData = Collections.emptyMap();
     }
     return new SimpleCopyJob(
-        reason, primaryAddress, copyState, this, files, highPriority, onceDone, indexName);
+        reason,
+        primaryAddress,
+        copyState,
+        this,
+        files,
+        highPriority,
+        onceDone,
+        indexName,
+        userData);
   }
 
-  private CopyState getCopyStateFromPrimary() throws IOException {
+  private CopyStateAndUserData getCopyStateFromPrimary() throws IOException {
     com.yelp.nrtsearch.server.grpc.CopyState copyState =
         primaryAddress.recvCopyState(indexName, id);
     return readCopyState(copyState);
   }
 
   /** Pulls CopyState off the wire */
-  private static CopyState readCopyState(com.yelp.nrtsearch.server.grpc.CopyState copyState)
-      throws IOException {
+  private static CopyStateAndUserData readCopyState(
+      com.yelp.nrtsearch.server.grpc.CopyState copyState) throws IOException {
 
     // Decode a new CopyState
     byte[] infosBytes = new byte[copyState.getInfoBytesLength()];
@@ -129,8 +157,12 @@ public class NRTReplicaNode extends ReplicaNode {
       completedMergeFiles.add(completedMergeFile);
     }
     long primaryGen = copyState.getPrimaryGen();
+    System.out.println(
+        "Replica got version: " + version + ", user data: " + copyState.getUserDataMap());
 
-    return new CopyState(files, version, gen, infosBytes, completedMergeFiles, primaryGen, null);
+    return new CopyStateAndUserData(
+        new CopyState(files, version, gen, infosBytes, completedMergeFiles, primaryGen, null),
+        copyState.getUserDataMap());
   }
 
   public static Map<String, FileMetaData> readFilesMetaData(FilesMetadata filesMetadata)
@@ -175,6 +207,23 @@ public class NRTReplicaNode extends ReplicaNode {
 
   @Override
   protected void finishNRTCopy(CopyJob job, long startNS) throws IOException {
+    if (!job.getFailed() && job instanceof SimpleCopyJob) {
+      SimpleCopyJob simpleCopyJob = (SimpleCopyJob) job;
+      System.out.println(
+          "Finish Nrt copy, current version: "
+              + getCurrentSearchingVersion()
+              + ", job user data: "
+              + simpleCopyJob.getUserData());
+      String lastCommittedVersionStr = simpleCopyJob.getUserData().get(VERSION_KEY);
+      if (lastCommittedVersionStr != null) {
+        long lastCommittedVersion = Long.parseLong(lastCommittedVersionStr);
+        if (getCurrentSearchingVersion() <= lastCommittedVersion) {
+          System.out.println("Doing replica commit");
+          commit();
+        }
+      }
+    }
+
     super.finishNRTCopy(job, startNS);
 
     // record metrics for this nrt point
@@ -185,6 +234,12 @@ public class NRTReplicaNode extends ReplicaNode {
       NrtMetrics.nrtPointSize.labels(indexName).observe(job.getTotalBytesCopied());
       NrtMetrics.searcherVersion.labels(indexName).set(job.getCopyState().version);
     }
+  }
+
+  private ChecksumIndexInput toIndexInput(byte[] input) {
+    return new BufferedChecksumIndexInput(
+        new ByteBuffersIndexInput(
+            new ByteBuffersDataInput(Arrays.asList(ByteBuffer.wrap(input))), "SegmentInfos"));
   }
 
   @Override

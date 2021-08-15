@@ -27,6 +27,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -404,6 +405,19 @@ public class NRTPrimaryNode extends PrimaryNode {
           .labels(indexName)
           .observe((System.nanoTime() - mergeStartNS) / 1000000.0);
     }
+  }
+
+  public long commitPrimary() throws IOException {
+    Map<String, String> commitData = new HashMap<>();
+    commitData.put(PRIMARY_GEN_KEY, Long.toString(primaryGen));
+    // TODO (opto): it's a bit wasteful that we put "last refresh" version here, not the actual
+    // version we are committing, because it means
+    // on xlog replay we are replaying more ops than necessary.
+    commitData.put(VERSION_KEY, Long.toString(getCopyStateVersion()));
+    message("top: commit commitData=" + commitData);
+    System.out.println("Primary commit data: " + commitData);
+    writer.setLiveCommitData(commitData.entrySet(), false);
+    return writer.commit();
   }
 
   public void setRAMBufferSizeMB(double mb) {

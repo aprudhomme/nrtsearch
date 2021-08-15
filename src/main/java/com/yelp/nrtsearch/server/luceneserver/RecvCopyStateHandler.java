@@ -75,6 +75,7 @@ public class RecvCopyStateHandler implements Handler<CopyStateRequest, CopyState
     }
 
     builder.setPrimaryGen(state.primaryGen);
+    builder.putAllUserData(state.infos.getUserData());
 
     return builder.build();
   }

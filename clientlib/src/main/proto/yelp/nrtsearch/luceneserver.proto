@@ -787,6 +787,7 @@ message CopyState {
     int32 completedMergeFilesSize = 6; //completed merged files
     repeated string completedMergeFiles = 7; //names of files that finished merge
     int64 primaryGen = 8; //primary Gen
+    map<string,string> userData = 9;
 }
 
 message FilesMetadata {

@@ -35,6 +35,7 @@ public class SimpleCopyJob extends CopyJob {
   private final CopyState copyState;
   private final ReplicationServerClient primaryAddres;
   private final String indexName;
+  private final Map<String, String> userData;
   private Iterator<Map.Entry<String, FileMetaData>> iter;
 
   public SimpleCopyJob(
@@ -45,12 +46,18 @@ public class SimpleCopyJob extends CopyJob {
       Map<String, FileMetaData> files,
       boolean highPriority,
       OnceDone onceDone,
-      String indexName)
+      String indexName,
+      Map<String, String> userData)
       throws IOException {
     super(reason, files, dest, highPriority, onceDone);
     this.copyState = copyState;
     this.primaryAddres = primaryAddress;
     this.indexName = indexName;
+    this.userData = userData;
+  }
+
+  public Map<String, String> getUserData() {
+    return userData;
   }
 
   @Override

@@ -320,7 +320,9 @@ public class ShardState implements Closeable {
     long gen;
 
     // nocommit this does nothing on replica?  make a failing test!
-    if (writer != null) {
+    if (nrtPrimaryNode != null) {
+      gen = nrtPrimaryNode.commitPrimary();
+    } else if (writer != null) {
       // nocommit: two phase commit?
       if (taxoWriter != null) {
         taxoWriter.commit();
@@ -330,6 +332,7 @@ public class ShardState implements Closeable {
       gen = -1;
     }
 
+    System.out.println("ShardState commit gen: " + gen);
     return gen;
   }
 
