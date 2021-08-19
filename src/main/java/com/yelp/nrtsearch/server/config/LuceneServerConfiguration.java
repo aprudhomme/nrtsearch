@@ -79,6 +79,7 @@ public class LuceneServerConfiguration {
   private final boolean virtualSharding;
   private final boolean syncInitialNrtPoint;
   private final boolean indexVerbose;
+  private final boolean autoReplicationThreadPoolSizing;
 
   private final YamlConfigReader configReader;
 
@@ -122,6 +123,8 @@ public class LuceneServerConfiguration {
     virtualSharding = configReader.getBoolean("virtualSharding", false);
     syncInitialNrtPoint = configReader.getBoolean("syncInitialNrtPoint", false);
     indexVerbose = configReader.getBoolean("indexVerbose", false);
+    autoReplicationThreadPoolSizing =
+        configReader.getBoolean("autoReplicationThreadPoolSizing", false);
     threadPoolConfiguration = new ThreadPoolConfiguration(configReader);
   }
 
@@ -223,6 +226,10 @@ public class LuceneServerConfiguration {
 
   public boolean getIndexVerbose() {
     return indexVerbose;
+  }
+
+  public boolean getAutoReplicationThreadPoolSizing() {
+    return autoReplicationThreadPoolSizing;
   }
 
   public YamlConfigReader getConfigReader() {

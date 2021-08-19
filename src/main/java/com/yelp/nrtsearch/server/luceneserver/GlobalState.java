@@ -83,6 +83,7 @@ public class GlobalState implements Closeable, Restorable {
   private final ExecutorService indexService;
   private final ExecutorService fetchService;
   private final ThreadPoolExecutor searchThreadPoolExecutor;
+  private final ThreadPoolExecutor replicationThreadPoolExecutor;
 
   public GlobalState(LuceneServerConfiguration luceneServerConfiguration) throws IOException {
     this.nodeName = luceneServerConfiguration.getNodeName();
@@ -108,6 +109,10 @@ public class GlobalState implements Closeable, Restorable {
     this.fetchService =
         ThreadPoolExecutorFactory.getThreadPoolExecutor(
             ThreadPoolExecutorFactory.ExecutorType.FETCH,
+            luceneServerConfiguration.getThreadPoolConfiguration());
+    this.replicationThreadPoolExecutor =
+        ThreadPoolExecutorFactory.getThreadPoolExecutor(
+            ThreadPoolExecutorFactory.ExecutorType.REPLICATIONSERVER,
             luceneServerConfiguration.getThreadPoolConfiguration());
     this.configuration = luceneServerConfiguration;
     loadIndexNames();
@@ -303,6 +308,10 @@ public class GlobalState implements Closeable, Restorable {
 
   public ExecutorService getFetchService() {
     return fetchService;
+  }
+
+  public ThreadPoolExecutor getReplicationThreadPoolExecutor() {
+    return replicationThreadPoolExecutor;
   }
 
   public String getEphemeralId() {

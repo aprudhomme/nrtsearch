@@ -19,8 +19,12 @@ import com.yelp.nrtsearch.server.grpc.AddReplicaRequest;
 import com.yelp.nrtsearch.server.grpc.AddReplicaResponse;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import java.io.IOException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 
 public class AddReplicaHandler implements Handler<AddReplicaRequest, AddReplicaResponse> {
+  private static final Object resizeThreadPoolLock = new Object();
+
   @Override
   public AddReplicaResponse handle(IndexState indexState, AddReplicaRequest addReplicaRequest) {
     ShardState shardState = indexState.getShard(0);
@@ -41,6 +45,39 @@ public class AddReplicaHandler implements Handler<AddReplicaRequest, AddReplicaR
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+
+    if (indexState.globalState.configuration.getAutoReplicationThreadPoolSizing()) {
+      resizeReplicationThreadPool(
+          () -> shardState.nrtPrimaryNode.getNodesInfo().size(),
+          indexState.globalState.getReplicationThreadPoolExecutor());
+    }
     return AddReplicaResponse.newBuilder().setOk("ok").build();
+  }
+
+  static void resizeReplicationThreadPool(
+      Supplier<Integer> numReplicasSupplier, ThreadPoolExecutor replicationThreadPool) {
+    // serialize updates if multiple replicas are being added concurrently to ensure the latest
+    // value gets set
+    synchronized (resizeThreadPoolLock) {
+      int numReplicas = numReplicasSupplier.get();
+      int newMaxThreads = computeThreadsForReplicas(numReplicas);
+      int currentMaxThreads = replicationThreadPool.getMaximumPoolSize();
+      // the call order depends on if the size is increasing or decreasing
+      if (newMaxThreads > currentMaxThreads) {
+        replicationThreadPool.setMaximumPoolSize(newMaxThreads);
+        replicationThreadPool.setCorePoolSize(newMaxThreads);
+      } else if (currentMaxThreads > newMaxThreads) {
+        replicationThreadPool.setCorePoolSize(newMaxThreads);
+        replicationThreadPool.setMaximumPoolSize(newMaxThreads);
+      }
+    }
+  }
+
+  /**
+   * We need at least one thread per replica to handle file copy, plus a few extra for short lived
+   * requests (getting primary node list, getting copy state, etc).
+   */
+  static int computeThreadsForReplicas(int numReplicas) {
+    return numReplicas + (numReplicas / 10) + 1;
   }
 }

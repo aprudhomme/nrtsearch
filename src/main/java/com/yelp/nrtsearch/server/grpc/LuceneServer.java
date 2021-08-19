@@ -190,10 +190,7 @@ public class LuceneServer {
     replicationServer =
         ServerBuilder.forPort(luceneServerConfiguration.getReplicationPort())
             .addService(new ReplicationServerImpl(globalState))
-            .executor(
-                ThreadPoolExecutorFactory.getThreadPoolExecutor(
-                    ThreadPoolExecutorFactory.ExecutorType.REPLICATIONSERVER,
-                    luceneServerConfiguration.getThreadPoolConfiguration()))
+            .executor(globalState.getReplicationThreadPoolExecutor())
             .maxInboundMessageSize(MAX_MESSAGE_BYTES_SIZE)
             .build()
             .start();
