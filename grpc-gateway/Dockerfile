@@ -2,9 +2,15 @@ FROM ubuntu:20.04
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y wget unzip htop \
-    openjdk-14-jdk \
     golang-go \
+    wget \
     git
+
+# java 14 is no longer available from the package server, workaround until we can update
+RUN wget https://cdn.azul.com/zulu/bin/zulu14.29.23-ca-jdk14.0.2-linux_amd64.deb
+RUN echo '14d38d0f23ac7e1a303cd04fef452d50df49996cce07ed62c8e7b69e82e4e98c zulu14.29.23-ca-jdk14.0.2-linux_amd64.deb' > CHECKSUM
+RUN sha256sum -c CHECKSUM
+RUN apt install -y ./zulu14.29.23-ca-jdk14.0.2-linux_amd64.deb
 
 # Install protoc
 ENV PROTOC_VERSION=3.11.4
