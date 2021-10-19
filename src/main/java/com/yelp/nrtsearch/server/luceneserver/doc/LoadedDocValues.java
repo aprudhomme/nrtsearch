@@ -15,6 +15,8 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.doc;
 
+import static org.apache.lucene.util.ArrayUtil.oversize;
+
 import com.google.gson.Gson;
 import com.google.protobuf.ListValue;
 import com.google.protobuf.Struct;
@@ -35,6 +37,7 @@ import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
 
@@ -59,17 +62,6 @@ import org.apache.lucene.util.NumericUtils;
  *     complex like a {@link GeoPoint}.
  */
 public abstract class LoadedDocValues<T> extends AbstractList<T> {
-  // long decoders
-  private static final LongFunction<Boolean> BOOL_DECODER = (longValue) -> longValue == 1;
-  private static final LongFunction<Integer> INT_DECODER = (longValue) -> (int) longValue;
-  private static final LongFunction<Long> LONG_DECODER = (longValue) -> longValue;
-  private static final LongFunction<Float> FLOAT_DECODER =
-      (longValue) -> Float.intBitsToFloat((int) longValue);
-  private static final LongFunction<Float> SORTED_FLOAT_DECODER =
-      (longValue) -> NumericUtils.sortableIntToFloat((int) longValue);
-  private static final LongFunction<Double> DOUBLE_DECODER = Double::longBitsToDouble;
-  private static final LongFunction<Double> SORTED_DOUBLE_DECODER =
-      NumericUtils::sortableLongToDouble;
   private static final LongFunction<Instant> DATE_DECODER = Instant::ofEpochMilli;
   private static final LongFunction<GeoPoint> GEO_POINT_DECODER =
       (longValue) ->
@@ -82,7 +74,7 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
   private static final Function<BytesRef, BytesRef> BYTES_REF_DECODER = BytesRef::deepCopyOf;
   private static final Function<BytesRef, String> STRING_DECODER = BytesRef::utf8ToString;
 
-  // Gson decoder to deserilize string to objects
+  // Gson decoder to deserialize string to objects
   private static final Gson gson = new Gson();
 
   public abstract void setDocId(int docID) throws IOException;
@@ -128,57 +120,247 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
     }
   }
 
-  public static final class SingleBoolean extends SingleNumericValue<Boolean> {
+  public static final class SingleBoolean extends LoadedDocValues<Boolean> {
+    private final NumericDocValues docValues;
+    private boolean value;
+    private boolean isSet;
+
     public SingleBoolean(NumericDocValues docValues) {
-      super(docValues, BOOL_DECODER);
+      this.docValues = docValues;
+      this.isSet = false;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        value = docValues.longValue() == 1;
+        isSet = true;
+      } else {
+        isSet = false;
+      }
+    }
+
+    @Override
+    public Boolean get(int index) {
+      return getBoolean(index);
+    }
+
+    public boolean getBoolean(int index) {
+      if (!isSet) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index != 0) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return value;
+    }
+
+    @Override
+    public int size() {
+      return isSet ? 1 : 0;
+    }
+
+    public boolean getValue() {
+      return getBoolean(0);
     }
 
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setBooleanValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setBooleanValue(getBoolean(index)).build();
     }
   }
 
-  public static final class SingleInteger extends SingleNumericValue<Integer> {
+  public static final class SingleInteger extends LoadedDocValues<Integer> {
+    private final NumericDocValues docValues;
+    private int value;
+    private boolean isSet;
+
     public SingleInteger(NumericDocValues docValues) {
-      super(docValues, INT_DECODER);
+      this.docValues = docValues;
+      this.isSet = false;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        value = (int) docValues.longValue();
+        isSet = true;
+      } else {
+        isSet = false;
+      }
+    }
+
+    @Override
+    public Integer get(int index) {
+      return getInt(index);
+    }
+
+    public int getInt(int index) {
+      if (!isSet) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index != 0) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return value;
+    }
+
+    @Override
+    public int size() {
+      return isSet ? 1 : 0;
+    }
+
+    public int getValue() {
+      return getInt(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setIntValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setIntValue(getInt(index)).build();
     }
   }
 
-  public static final class SingleLong extends SingleNumericValue<Long> {
+  public static final class SingleLong extends LoadedDocValues<Long> {
+    private final NumericDocValues docValues;
+    private long value;
+    private boolean isSet;
+
     public SingleLong(NumericDocValues docValues) {
-      super(docValues, LONG_DECODER);
+      this.docValues = docValues;
+      this.isSet = false;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        value = docValues.longValue();
+        isSet = true;
+      } else {
+        isSet = false;
+      }
+    }
+
+    @Override
+    public Long get(int index) {
+      return getLong(index);
+    }
+
+    public long getLong(int index) {
+      if (!isSet) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index != 0) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return value;
+    }
+
+    @Override
+    public int size() {
+      return isSet ? 1 : 0;
+    }
+
+    public long getValue() {
+      return getLong(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setLongValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setLongValue(getLong(index)).build();
     }
   }
 
-  public static final class SingleFloat extends SingleNumericValue<Float> {
+  public static final class SingleFloat extends LoadedDocValues<Float> {
+    private final NumericDocValues docValues;
+    private float value;
+    private boolean isSet;
+
     public SingleFloat(NumericDocValues docValues) {
-      super(docValues, FLOAT_DECODER);
+      this.docValues = docValues;
+      this.isSet = false;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        value = Float.intBitsToFloat((int) docValues.longValue());
+        isSet = true;
+      } else {
+        isSet = false;
+      }
+    }
+
+    @Override
+    public Float get(int index) {
+      return getFloat(index);
+    }
+
+    public float getFloat(int index) {
+      if (!isSet) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index != 0) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return value;
+    }
+
+    @Override
+    public int size() {
+      return isSet ? 1 : 0;
+    }
+
+    public float getValue() {
+      return getFloat(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setFloatValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setFloatValue(getFloat(index)).build();
     }
   }
 
-  public static final class SingleDouble extends SingleNumericValue<Double> {
+  public static final class SingleDouble extends LoadedDocValues<Double> {
+    private final NumericDocValues docValues;
+    private double value;
+    private boolean isSet;
+
     public SingleDouble(NumericDocValues docValues) {
-      super(docValues, DOUBLE_DECODER);
+      this.docValues = docValues;
+      this.isSet = false;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        value = Double.longBitsToDouble(docValues.longValue());
+        isSet = true;
+      } else {
+        isSet = false;
+      }
+    }
+
+    @Override
+    public Double get(int index) {
+      return getDouble(index);
+    }
+
+    public double getDouble(int index) {
+      if (!isSet) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index != 0) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return value;
+    }
+
+    @Override
+    public int size() {
+      return isSet ? 1 : 0;
+    }
+
+    public double getValue() {
+      return getDouble(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setDoubleValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setDoubleValue(getDouble(index)).build();
     }
   }
 
@@ -233,58 +415,277 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
     }
   }
 
-  public static final class SortedBooleans extends SortedNumericValues<Boolean> {
+  public static final class SortedBooleans extends LoadedDocValues<Boolean> {
+    private final SortedNumericDocValues docValues;
+    private boolean[] values = new boolean[0];
+    private int size;
+
     public SortedBooleans(SortedNumericDocValues docValues) {
-      super(docValues, BOOL_DECODER);
+      this.docValues = docValues;
+      this.size = 0;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        size = docValues.docValueCount();
+        values = grow(values, size);
+        for (int i = 0; i < size; ++i) {
+          values[i] = docValues.nextValue() == 1;
+        }
+      } else {
+        size = 0;
+      }
+    }
+
+    @Override
+    public Boolean get(int index) {
+      return getBoolean(index);
+    }
+
+    public boolean getBoolean(int index) {
+      if (size == 0) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index < 0 || index >= size) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return values[index];
+    }
+
+    @Override
+    public int size() {
+      return size;
+    }
+
+    public boolean getValue() {
+      return getBoolean(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setBooleanValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setBooleanValue(getBoolean(index)).build();
+    }
+
+    // Lucene ArrayUtil does not have grow functions for boolean[], added here for support
+    static boolean[] grow(boolean[] array, int minSize) {
+      assert minSize >= 0 : "size must be positive (got " + minSize + "): likely integer overflow?";
+      if (array.length < minSize) {
+        return growExact(array, oversize(minSize, 1));
+      } else return array;
+    }
+
+    static boolean[] growExact(boolean[] array, int newLength) {
+      boolean[] copy = new boolean[newLength];
+      System.arraycopy(array, 0, copy, 0, array.length);
+      return copy;
     }
   }
 
-  public static final class SortedIntegers extends SortedNumericValues<Integer> {
+  public static final class SortedIntegers extends LoadedDocValues<Integer> {
+    private final SortedNumericDocValues docValues;
+    private int[] values = new int[0];
+    private int size;
+
     public SortedIntegers(SortedNumericDocValues docValues) {
-      super(docValues, INT_DECODER);
+      this.docValues = docValues;
+      this.size = 0;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        size = docValues.docValueCount();
+        values = ArrayUtil.grow(values, size);
+        for (int i = 0; i < size; ++i) {
+          values[i] = (int) docValues.nextValue();
+        }
+      } else {
+        size = 0;
+      }
+    }
+
+    @Override
+    public Integer get(int index) {
+      return getInt(index);
+    }
+
+    public int getInt(int index) {
+      if (size == 0) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index < 0 || index >= size) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return values[index];
+    }
+
+    @Override
+    public int size() {
+      return size;
+    }
+
+    public int getValue() {
+      return getInt(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setIntValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setIntValue(getInt(index)).build();
     }
   }
 
-  public static final class SortedLongs extends SortedNumericValues<Long> {
+  public static final class SortedLongs extends LoadedDocValues<Long> {
+    private final SortedNumericDocValues docValues;
+    private long[] values = new long[0];
+    private int size;
+
     public SortedLongs(SortedNumericDocValues docValues) {
-      super(docValues, LONG_DECODER);
+      this.docValues = docValues;
+      this.size = 0;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        size = docValues.docValueCount();
+        values = ArrayUtil.grow(values, size);
+        for (int i = 0; i < size; ++i) {
+          values[i] = docValues.nextValue();
+        }
+      } else {
+        size = 0;
+      }
+    }
+
+    @Override
+    public Long get(int index) {
+      return getLong(index);
+    }
+
+    public long getLong(int index) {
+      if (size == 0) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index < 0 || index >= size) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return values[index];
+    }
+
+    @Override
+    public int size() {
+      return size;
+    }
+
+    public long getValue() {
+      return getLong(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setLongValue(index).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setLongValue(getLong(index)).build();
     }
   }
 
-  public static final class SortedFloats extends SortedNumericValues<Float> {
+  public static final class SortedFloats extends LoadedDocValues<Float> {
+    private final SortedNumericDocValues docValues;
+    private float[] values = new float[0];
+    private int size;
+
     public SortedFloats(SortedNumericDocValues docValues) {
-      super(docValues, SORTED_FLOAT_DECODER);
+      this.docValues = docValues;
+      this.size = 0;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        size = docValues.docValueCount();
+        values = ArrayUtil.grow(values, size);
+        for (int i = 0; i < size; ++i) {
+          values[i] = NumericUtils.sortableIntToFloat((int) docValues.nextValue());
+        }
+      } else {
+        size = 0;
+      }
+    }
+
+    @Override
+    public Float get(int index) {
+      return getFloat(index);
+    }
+
+    public float getFloat(int index) {
+      if (size == 0) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index < 0 || index >= size) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return values[index];
+    }
+
+    @Override
+    public int size() {
+      return size;
+    }
+
+    public float getValue() {
+      return getFloat(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setFloatValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setFloatValue(getFloat(index)).build();
     }
   }
 
-  public static final class SortedDoubles extends SortedNumericValues<Double> {
+  public static final class SortedDoubles extends LoadedDocValues<Double> {
+    private final SortedNumericDocValues docValues;
+    private double[] values = new double[0];
+    private int size;
+
     public SortedDoubles(SortedNumericDocValues docValues) {
-      super(docValues, SORTED_DOUBLE_DECODER);
+      this.docValues = docValues;
+      this.size = 0;
+    }
+
+    @Override
+    public void setDocId(int docID) throws IOException {
+      if (docValues.advanceExact(docID)) {
+        size = docValues.docValueCount();
+        values = ArrayUtil.grow(values, size);
+        for (int i = 0; i < size; ++i) {
+          values[i] = NumericUtils.sortableLongToDouble(docValues.nextValue());
+        }
+      } else {
+        size = 0;
+      }
+    }
+
+    @Override
+    public Double get(int index) {
+      return getDouble(index);
+    }
+
+    public double getDouble(int index) {
+      if (size == 0) {
+        throw new IllegalStateException("No doc values for document");
+      } else if (index < 0 || index >= size) {
+        throw new IndexOutOfBoundsException("No doc value for index: " + index);
+      }
+      return values[index];
+    }
+
+    @Override
+    public int size() {
+      return size;
+    }
+
+    public double getValue() {
+      return getDouble(0);
     }
 
     @Override
     public SearchResponse.Hit.FieldValue toFieldValue(int index) {
-      return SearchResponse.Hit.FieldValue.newBuilder().setDoubleValue(get(index)).build();
+      return SearchResponse.Hit.FieldValue.newBuilder().setDoubleValue(getDouble(index)).build();
     }
   }
 
