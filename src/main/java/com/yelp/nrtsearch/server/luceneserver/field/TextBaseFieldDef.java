@@ -46,6 +46,7 @@ import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexReaderContext;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.Query;
@@ -260,12 +261,20 @@ public abstract class TextBaseFieldDef extends IndexableFieldDef
 
   @Override
   public LoadedDocValues<?> getDocValues(LeafReaderContext context) throws IOException {
+    GlobalOrdinalLookup ordinalLookup = null;
+    if (getEagerFieldGlobalOrdinals()) {
+      IndexReaderContext topContext = context;
+      while (!topContext.isTopLevel) {
+        topContext = topContext.parent;
+      }
+      ordinalLookup = getOrdinalLookup(topContext.reader());
+    }
     if (docValuesType == DocValuesType.BINARY) {
       // The value is stored in a BINARY field, but it is always a String
       BinaryDocValues binaryDocValues = DocValues.getBinary(context.reader(), getName());
       return new LoadedDocValues.SingleString(binaryDocValues);
     } else {
-      return DocValuesFactory.getBinaryDocValues(getName(), docValuesType, context);
+      return DocValuesFactory.getBinaryDocValues(getName(), docValuesType, context, ordinalLookup);
     }
   }
 

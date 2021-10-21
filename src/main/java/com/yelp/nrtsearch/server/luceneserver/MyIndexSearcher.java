@@ -25,7 +25,6 @@ import java.util.PriorityQueue;
 import java.util.concurrent.Executor;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.CollectionTerminatedException;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.DocIdSetIterator;
@@ -250,7 +249,7 @@ public class MyIndexSearcher extends IndexSearcher {
         // continue with the following leaf
         continue;
       }
-      if (weight.getQuery().toString().contains("DrillSidewaysQuery")) {
+      /*if (weight.getQuery().toString().contains("DrillSidewaysQuery")) {
         BulkScorer scorer = weight.bulkScorer(ctx);
         if (scorer != null) {
           try {
@@ -260,24 +259,24 @@ public class MyIndexSearcher extends IndexSearcher {
             // continue with the following leaf
           }
         }
-      } else {
-        Scorer scorer = weight.scorer(ctx);
-        if (scorer != null) {
-          leafCollector.setScorer(scorer);
-          final Bits liveDocs = ctx.reader().getLiveDocs();
-          final DocIdSetIterator it = scorer.iterator();
-          try {
-            for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-              if (liveDocs == null || liveDocs.get(doc)) {
-                leafCollector.collect(doc);
-              }
+      } else {*/
+      Scorer scorer = weight.scorer(ctx);
+      if (scorer != null) {
+        leafCollector.setScorer(scorer);
+        final Bits liveDocs = ctx.reader().getLiveDocs();
+        final DocIdSetIterator it = scorer.iterator();
+        try {
+          for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
+            if (liveDocs == null || liveDocs.get(doc)) {
+              leafCollector.collect(doc);
             }
-          } catch (CollectionTerminatedException e) {
-            // collection was terminated prematurely
-            // continue with the following leaf
           }
+        } catch (CollectionTerminatedException e) {
+          // collection was terminated prematurely
+          // continue with the following leaf
         }
       }
+      // }
     }
   }
 }

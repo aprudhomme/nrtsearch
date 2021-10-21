@@ -218,7 +218,9 @@ public class NRTPrimaryNode extends PrimaryNode {
 
     @Override
     protected IndexSearcher refreshIfNeeded(IndexSearcher referenceToRefresh) throws IOException {
+      //System.out.println("Refresh if needed");
       if (primary.flushAndRefresh()) {
+        //System.out.println("Send new nrt point");
         primary.sendNewNRTPointToReplicas();
         // NOTE: steals a ref from one ReferenceManager to another!
         return SearcherManager.getSearcher(
