@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef.FacetValueType;
+import com.yelp.nrtsearch.server.luceneserver.search.LRUWarmableQueryCache;
 import com.yelp.nrtsearch.server.luceneserver.warming.WarmerConfig;
 import com.yelp.nrtsearch.server.monitoring.IndexMetrics;
 import com.yelp.nrtsearch.server.utils.FileUtil;
@@ -72,6 +73,7 @@ import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.ControlledRealTimeReopenThread;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.QueryCache;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.search.SearcherFactory;
 import org.apache.lucene.search.SearcherLifetimeManager;
@@ -448,6 +450,16 @@ public class ShardState implements Closeable {
       searcher.setSimilarity(indexState.sim);
       if (loadEagerOrdinals) {
         loadEagerGlobalOrdinals(reader);
+      }
+      if (started) {
+        try {
+          QueryCache queryCache = IndexSearcher.getDefaultQueryCache();
+          if (queryCache instanceof LRUWarmableQueryCache) {
+            ((LRUWarmableQueryCache) queryCache).warmSearcher(searcher, previousReader);
+          }
+        } catch (Exception e) {
+          logger.warn("Error during segment auto warming", e);
+        }
       }
       if (collectMetrics) {
         IndexMetrics.updateReaderStats(indexState.name, reader);

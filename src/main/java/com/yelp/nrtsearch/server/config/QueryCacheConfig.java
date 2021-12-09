@@ -33,6 +33,9 @@ public class QueryCacheConfig {
   private final long maxMemoryBytes;
   private final Predicate<LeafReaderContext> leafPredicate;
   private final float skipCacheFactor;
+  private final boolean enable;
+  private final boolean autoWarming;
+  private final int maxQueriesToWarm;
 
   /**
    * Create instance from provided configuration reader.
@@ -41,7 +44,11 @@ public class QueryCacheConfig {
    * @return class instance
    */
   public static QueryCacheConfig fromConfig(YamlConfigReader configReader) {
+    boolean enable = configReader.getBoolean(CONFIG_PREFIX + "enable", true);
+    boolean autoWarming = configReader.getBoolean(CONFIG_PREFIX + "autoWarming", false);
     int maxQueries = configReader.getInteger(CONFIG_PREFIX + "maxQueries", DEFAULT_MAX_QUERIES);
+    double maxQueriesToWarm =
+        configReader.getDouble(CONFIG_PREFIX + "maxQueriesToWarm", (double) maxQueries);
     String maxMemory = configReader.getString(CONFIG_PREFIX + "maxMemory", DEFAULT_MAX_MEMORY);
     long maxMemoryBytes = sizeStrToBytes(maxMemory);
     int minDocs = configReader.getInteger(CONFIG_PREFIX + "minDocs", DEFAULT_MIN_DOCS);
@@ -49,7 +56,29 @@ public class QueryCacheConfig {
         configReader.getFloat(CONFIG_PREFIX + "minSizeRatio", DEFAULT_MIN_SIZE_RATIO);
     float skipCacheFactor =
         configReader.getFloat(CONFIG_PREFIX + "skipCacheFactor", DEFAULT_SKIP_CACHE_FACTOR);
-    return new QueryCacheConfig(maxQueries, maxMemoryBytes, minDocs, minSizeRatio, skipCacheFactor);
+    return new QueryCacheConfig(
+        enable,
+        autoWarming,
+        maxQueries,
+        maxQueriesToWarm,
+        maxMemoryBytes,
+        minDocs,
+        minSizeRatio,
+        skipCacheFactor);
+  }
+
+  static int getMaxQueriesToWarm(int maxQueries, double maxQueriesOrProportion) {
+    if (maxQueriesOrProportion < 0) {
+      throw new IllegalArgumentException("maxQueriesToWarm must be >= 0");
+    }
+    if (maxQueriesOrProportion > maxQueries) {
+      throw new IllegalArgumentException("maxQueriesToWarm cannot be > maxQueries");
+    }
+    if (maxQueriesOrProportion <= 1.0) {
+      return (int) (maxQueriesOrProportion * maxQueries);
+    } else {
+      return (int) maxQueriesOrProportion;
+    }
   }
 
   /**
@@ -91,23 +120,52 @@ public class QueryCacheConfig {
   /**
    * Constructor.
    *
+   * @param enable if query caching is enabled
+   * @param autoWarming if new segments should be warmed against the existing cached queries
    * @param maxQueries max queries the cache will hold
+   * @param maxQueriesToWarm max queries to warm when auto warming, can be an absolute size or
+   *     proportion of max size (0.0-1.0)
    * @param maxMemoryBytes maximum cache memory size
    * @param minDocs min docs needed to consider caching for a segment
    * @param minSizeRatio min portion of index a segment must have to use caching
    * @param skipCacheFactor skip caching clauses this many times as expensive as top-level query
    */
   public QueryCacheConfig(
-      int maxQueries, long maxMemoryBytes, int minDocs, float minSizeRatio, float skipCacheFactor) {
+      boolean enable,
+      boolean autoWarming,
+      int maxQueries,
+      double maxQueriesToWarm,
+      long maxMemoryBytes,
+      int minDocs,
+      float minSizeRatio,
+      float skipCacheFactor) {
+    this.enable = enable;
+    this.autoWarming = autoWarming;
     this.maxQueries = maxQueries;
+    this.maxQueriesToWarm = getMaxQueriesToWarm(maxQueries, maxQueriesToWarm);
     this.maxMemoryBytes = maxMemoryBytes;
     this.leafPredicate = new MinSegmentSizePredicate(minDocs, minSizeRatio);
     this.skipCacheFactor = skipCacheFactor;
   }
 
+  /** Get if query caching is enabled. */
+  public boolean getEnable() {
+    return enable;
+  }
+
+  /** Get if auto warming of new segments is enabled. */
+  public boolean getAutoWarming() {
+    return autoWarming;
+  }
+
   /** Get maximum queries to cache. */
   public int getMaxQueries() {
     return maxQueries;
+  }
+
+  /** Get maximum queries to auto warm for new segments */
+  public int getMaxQueriesToWarm() {
+    return maxQueriesToWarm;
   }
 
   /** Get maximum memory to use for cache. */

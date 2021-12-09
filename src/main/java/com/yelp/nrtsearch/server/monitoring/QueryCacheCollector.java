@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.server.monitoring;
 
+import com.yelp.nrtsearch.server.luceneserver.search.LRUWarmableQueryCache;
 import io.prometheus.client.Collector;
 import io.prometheus.client.GaugeMetricFamily;
 import java.util.ArrayList;
@@ -30,11 +31,51 @@ public class QueryCacheCollector extends Collector {
   @Override
   public List<MetricFamilySamples> collect() {
     QueryCache queryCache = IndexSearcher.getDefaultQueryCache();
-    if (!(queryCache instanceof LRUQueryCache)) {
+    if (queryCache instanceof LRUQueryCache) {
+      return collect((LRUQueryCache) queryCache);
+    } else if (queryCache instanceof LRUWarmableQueryCache) {
+      return collect((LRUWarmableQueryCache) queryCache);
+    } else {
       return Collections.emptyList();
     }
-    LRUQueryCache lruQueryCache = (LRUQueryCache) queryCache;
+  }
 
+  private List<MetricFamilySamples> collect(LRUQueryCache lruQueryCache) {
+    List<MetricFamilySamples> mfs = new ArrayList<>();
+    mfs.add(
+        new GaugeMetricFamily(
+            "nrt_query_cache_hits",
+            "Total number of query cache hits.",
+            lruQueryCache.getHitCount()));
+    mfs.add(
+        new GaugeMetricFamily(
+            "nrt_query_cache_misses",
+            "Total number of query cache misses.",
+            lruQueryCache.getMissCount()));
+    mfs.add(
+        new GaugeMetricFamily(
+            "nrt_query_cache_size",
+            "Total number of entries in query cache.",
+            lruQueryCache.getCacheSize()));
+    mfs.add(
+        new GaugeMetricFamily(
+            "nrt_query_cache_size_bytes",
+            "Total memory used by query cache.",
+            lruQueryCache.ramBytesUsed()));
+    mfs.add(
+        new GaugeMetricFamily(
+            "nrt_query_cache_count",
+            "Total number of entries added to the query cache.",
+            lruQueryCache.getCacheCount()));
+    mfs.add(
+        new GaugeMetricFamily(
+            "nrt_query_cache_eviction_count",
+            "Total number of query cache evictions.",
+            lruQueryCache.getEvictionCount()));
+    return mfs;
+  }
+
+  private List<MetricFamilySamples> collect(LRUWarmableQueryCache lruQueryCache) {
     List<MetricFamilySamples> mfs = new ArrayList<>();
     mfs.add(
         new GaugeMetricFamily(
