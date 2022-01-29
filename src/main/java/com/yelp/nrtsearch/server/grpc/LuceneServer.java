@@ -18,6 +18,7 @@ package com.yelp.nrtsearch.server.grpc;
 import static com.yelp.nrtsearch.server.grpc.ReplicationServerClient.MAX_MESSAGE_BYTES_SIZE;
 
 import com.google.api.HttpBody;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
@@ -44,6 +45,7 @@ import com.yelp.nrtsearch.server.luceneserver.rescore.RescorerCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.search.FetchTaskCreator;
 import com.yelp.nrtsearch.server.luceneserver.search.LRUWarmableQueryCache;
+import com.yelp.nrtsearch.server.luceneserver.search.cache.NrtQueryCache;
 import com.yelp.nrtsearch.server.luceneserver.similarity.SimilarityCreator;
 import com.yelp.nrtsearch.server.luceneserver.warming.Warmer;
 import com.yelp.nrtsearch.server.monitoring.*;
@@ -55,6 +57,7 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.ServerInterceptors;
 import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.protobuf.services.ProtoReflectionService;
 import io.grpc.stub.ServerCallStreamObserver;
@@ -70,7 +73,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.LRUQueryCache;
 import org.apache.lucene.search.QueryCache;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
@@ -244,6 +246,8 @@ public class LuceneServer {
     IndexMetrics.register(collectorRegistry);
     // register query cache metrics
     new QueryCacheCollector().register(collectorRegistry);
+    // register deadline cancellation metrics
+    DeadlineMetrics.register(collectorRegistry);
   }
 
   /** Main launches the server from the command line. */
@@ -270,9 +274,9 @@ public class LuceneServer {
 
     @Override
     public Integer call() throws Exception {
-      Injector injector = Guice.createInjector(new LuceneServerModule(this));
       LuceneServer luceneServer;
       try {
+        Injector injector = Guice.createInjector(new LuceneServerModule(this));
         luceneServer = injector.getInstance(LuceneServer.class);
         luceneServer.start();
       } catch (Throwable t) {
@@ -312,14 +316,17 @@ public class LuceneServer {
       this.backupFromIncArchiver = configuration.getBackupWithInArchiver();
       this.restoreFromIncArchiver = configuration.getRestoreFromIncArchiver();
 
+      DeadlineUtils.setCancellationEnabled(configuration.getDeadlineCancellation());
+
       initQueryCache(configuration);
       initExtendableComponents(configuration, plugins);
     }
 
-    private void initQueryCache(LuceneServerConfiguration configuration) {
+    @VisibleForTesting
+    static void initQueryCache(LuceneServerConfiguration configuration) {
       QueryCacheConfig cacheConfig = configuration.getQueryCacheConfig();
       QueryCache queryCache;
-      if (!cacheConfig.getEnable()) {
+      if (!cacheConfig.getEnabled()) {
         queryCache = null;
       } else if (cacheConfig.getAutoWarming()) {
         queryCache =
@@ -331,7 +338,7 @@ public class LuceneServer {
                 cacheConfig.getSkipCacheFactor());
       } else {
         queryCache =
-            new LRUQueryCache(
+            new NrtQueryCache(
                 cacheConfig.getMaxQueries(),
                 cacheConfig.getMaxMemoryBytes(),
                 cacheConfig.getLeafPredicate(),
@@ -960,14 +967,18 @@ public class LuceneServer {
                 "error while trying to execute search for index %s: request: %s",
                 searchRequest.getIndexName(), searchRequestJson),
             e);
-        searchResponseStreamObserver.onError(
-            Status.UNKNOWN
-                .withDescription(
-                    String.format(
-                        "error while trying to execute search for index %s. check logs for full searchRequest.",
-                        searchRequest.getIndexName()))
-                .augmentDescription(e.getMessage())
-                .asRuntimeException());
+        if (e instanceof StatusRuntimeException) {
+          searchResponseStreamObserver.onError(e);
+        } else {
+          searchResponseStreamObserver.onError(
+              Status.UNKNOWN
+                  .withDescription(
+                      String.format(
+                          "error while trying to execute search for index %s. check logs for full searchRequest.",
+                          searchRequest.getIndexName()))
+                  .augmentDescription(e.getMessage())
+                  .asRuntimeException());
+        }
       }
     }
 
@@ -1007,14 +1018,18 @@ public class LuceneServer {
                 "error while trying to execute search for index %s: request: %s",
                 searchRequest.getIndexName(), searchRequestJson),
             e);
-        searchResponseStreamObserver.onError(
-            Status.UNKNOWN
-                .withDescription(
-                    String.format(
-                        "error while trying to execute search for index %s. check logs for full searchRequest.",
-                        searchRequest.getIndexName()))
-                .augmentDescription(e.getMessage())
-                .asRuntimeException());
+        if (e instanceof StatusRuntimeException) {
+          searchResponseStreamObserver.onError(e);
+        } else {
+          searchResponseStreamObserver.onError(
+              Status.UNKNOWN
+                  .withDescription(
+                      String.format(
+                          "error while trying to execute search for index %s. check logs for full searchRequest.",
+                          searchRequest.getIndexName()))
+                  .augmentDescription(e.getMessage())
+                  .asRuntimeException());
+        }
       }
     }
 

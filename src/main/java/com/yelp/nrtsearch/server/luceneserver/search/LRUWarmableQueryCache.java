@@ -19,6 +19,7 @@ import static org.apache.lucene.util.RamUsageEstimator.HASHTABLE_RAM_BYTES_PER_E
 import static org.apache.lucene.util.RamUsageEstimator.LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY;
 import static org.apache.lucene.util.RamUsageEstimator.QUERY_DEFAULT_RAM_BYTES_USED;
 
+import com.yelp.nrtsearch.server.luceneserver.search.cache.CacheMetricsProvider;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -106,7 +107,7 @@ import org.slf4j.LoggerFactory;
  * @see QueryCachingPolicy
  * @lucene.experimental
  */
-public class LRUWarmableQueryCache implements QueryCache, Accountable {
+public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetricsProvider {
   private static final Logger logger = LoggerFactory.getLogger(LRUWarmableQueryCache.class);
 
   private final int maxSize;
@@ -131,6 +132,9 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable {
   private volatile long missCount;
   private volatile long cacheCount;
   private volatile long cacheSize;
+
+  private volatile long cacheQueryCount;
+  private volatile long cacheQuerySize;
 
   /**
    * Expert: Create a new instance that will cache at most <code>maxSize</code> queries with at most
@@ -178,6 +182,46 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable {
    */
   public LRUWarmableQueryCache(int maxSize, long maxRamBytesUsed) {
     this(maxSize, maxSize, maxRamBytesUsed, new MinSegmentSizePredicate(10000, .03f), 250);
+  }
+
+  @Override
+  public long getHitCountMetric() {
+    return getHitCount();
+  }
+
+  @Override
+  public long getMissCountMetric() {
+    return getMissCount();
+  }
+
+  @Override
+  public long getCacheSizeMetric() {
+    return getCacheSize();
+  }
+
+  @Override
+  public long getRamBytesUsedMetric() {
+    return ramBytesUsed();
+  }
+
+  @Override
+  public long getCacheCountMetric() {
+    return getCacheCount();
+  }
+
+  @Override
+  public long getEvictionCountMetric() {
+    return getEvictionCount();
+  }
+
+  @Override
+  public long getCacheQueryCountMetric() {
+    return cacheQueryCount;
+  }
+
+  @Override
+  public long getCacheQuerySizeMetric() {
+    return cacheQuerySize;
   }
 
   // pkg-private for testing
@@ -334,6 +378,8 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable {
   protected void onQueryCache(Query query, long ramBytesUsed) {
     assert lock.isHeldByCurrentThread();
     this.ramBytesUsed += ramBytesUsed;
+    this.cacheQueryCount += 1;
+    this.cacheQuerySize += 1;
   }
 
   /**
@@ -345,6 +391,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable {
   protected void onQueryEviction(Query query, long ramBytesUsed) {
     assert lock.isHeldByCurrentThread();
     this.ramBytesUsed -= ramBytesUsed;
+    this.cacheQuerySize -= 1;
   }
 
   /**

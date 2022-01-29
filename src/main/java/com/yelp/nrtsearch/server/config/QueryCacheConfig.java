@@ -29,11 +29,11 @@ public class QueryCacheConfig {
   static final float DEFAULT_MIN_SIZE_RATIO = 0.03f;
   static final float DEFAULT_SKIP_CACHE_FACTOR = 250.0f;
 
+  private final boolean enabled;
   private final int maxQueries;
   private final long maxMemoryBytes;
   private final Predicate<LeafReaderContext> leafPredicate;
   private final float skipCacheFactor;
-  private final boolean enable;
   private final boolean autoWarming;
   private final int maxQueriesToWarm;
 
@@ -44,7 +44,7 @@ public class QueryCacheConfig {
    * @return class instance
    */
   public static QueryCacheConfig fromConfig(YamlConfigReader configReader) {
-    boolean enable = configReader.getBoolean(CONFIG_PREFIX + "enable", true);
+    boolean enabled = configReader.getBoolean(CONFIG_PREFIX + "enabled", true);
     boolean autoWarming = configReader.getBoolean(CONFIG_PREFIX + "autoWarming", false);
     int maxQueries = configReader.getInteger(CONFIG_PREFIX + "maxQueries", DEFAULT_MAX_QUERIES);
     double maxQueriesToWarm =
@@ -57,7 +57,7 @@ public class QueryCacheConfig {
     float skipCacheFactor =
         configReader.getFloat(CONFIG_PREFIX + "skipCacheFactor", DEFAULT_SKIP_CACHE_FACTOR);
     return new QueryCacheConfig(
-        enable,
+        enabled,
         autoWarming,
         maxQueries,
         maxQueriesToWarm,
@@ -120,7 +120,7 @@ public class QueryCacheConfig {
   /**
    * Constructor.
    *
-   * @param enable if query caching is enabled
+   * @param enabled toggle for enabling query cache
    * @param autoWarming if new segments should be warmed against the existing cached queries
    * @param maxQueries max queries the cache will hold
    * @param maxQueriesToWarm max queries to warm when auto warming, can be an absolute size or
@@ -131,7 +131,7 @@ public class QueryCacheConfig {
    * @param skipCacheFactor skip caching clauses this many times as expensive as top-level query
    */
   public QueryCacheConfig(
-      boolean enable,
+      boolean enabled,
       boolean autoWarming,
       int maxQueries,
       double maxQueriesToWarm,
@@ -139,7 +139,7 @@ public class QueryCacheConfig {
       int minDocs,
       float minSizeRatio,
       float skipCacheFactor) {
-    this.enable = enable;
+    this.enabled = enabled;
     this.autoWarming = autoWarming;
     this.maxQueries = maxQueries;
     this.maxQueriesToWarm = getMaxQueriesToWarm(maxQueries, maxQueriesToWarm);
@@ -149,8 +149,8 @@ public class QueryCacheConfig {
   }
 
   /** Get if query caching is enabled. */
-  public boolean getEnable() {
-    return enable;
+  public boolean getEnabled() {
+    return enabled;
   }
 
   /** Get if auto warming of new segments is enabled. */
