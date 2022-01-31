@@ -15,17 +15,21 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.search.cache;
 
+/**
+ * Interface for exposing metrics for a {@link org.apache.lucene.search.QueryCache} implementation.
+ */
 public interface CacheMetricsProvider {
+  /** Get number of times {@link org.apache.lucene.search.DocIdSet} was found in cache. */
   long getHitCountMetric();
-
+  /** Get number of times {@link org.apache.lucene.search.DocIdSet} was not found in cache. */
   long getMissCountMetric();
-
+  /** Get number of {@link org.apache.lucene.search.DocIdSet} currently in the cache. */
   long getCacheSizeMetric();
-
+  /** Get cache size in bytes. */
   long getRamBytesUsedMetric();
-
+  /** Get number of {@link org.apache.lucene.search.DocIdSet} that have ever been cached. */
   long getCacheCountMetric();
-
+  /** Get number of {@link org.apache.lucene.search.DocIdSet} that have been evicted. */
   long getEvictionCountMetric();
   /** Get count of all queries added to cache. */
   long getCacheQueryCountMetric();

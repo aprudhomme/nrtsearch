@@ -13,13 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.yelp.nrtsearch.server.luceneserver.search;
+package com.yelp.nrtsearch.server.luceneserver.search.cache;
 
 import static org.apache.lucene.util.RamUsageEstimator.HASHTABLE_RAM_BYTES_PER_ENTRY;
 import static org.apache.lucene.util.RamUsageEstimator.LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY;
 import static org.apache.lucene.util.RamUsageEstimator.QUERY_DEFAULT_RAM_BYTES_USED;
 
-import com.yelp.nrtsearch.server.luceneserver.search.cache.CacheMetricsProvider;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -120,7 +119,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
   // are only allowed to store sub-sets of the queries that are contained in
   // mostRecentlyUsedQueries. This is why write operations are performed under a lock
   private final Set<Query> mostRecentlyUsedQueries;
-  private final Map<IndexReader.CacheKey, LeafCache> cache;
+  private final Map<CacheKey, LeafCache> cache;
   private final ReentrantLock lock;
   private final float skipCacheFactor;
   private final int maxWarmingSize;
@@ -275,7 +274,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
             .collect(Collectors.toList());
 
     if (contextsToWarm.isEmpty()) {
-      logger.info("No new contexts to warm for searcher");
+      logger.debug("No new contexts to warm for searcher");
       return;
     }
 
@@ -442,11 +441,11 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
     }
   }
 
-  DocIdSet get(Query key, IndexReader.CacheHelper cacheHelper) {
+  DocIdSet get(Query key, CacheHelper cacheHelper) {
     assert lock.isHeldByCurrentThread();
     assert key instanceof BoostQuery == false;
     assert key instanceof ConstantScoreQuery == false;
-    final IndexReader.CacheKey readerKey = cacheHelper.getKey();
+    final CacheKey readerKey = cacheHelper.getKey();
     final LeafCache leafCache = cache.get(readerKey);
     if (leafCache == null) {
       onMiss(readerKey, key);
@@ -467,7 +466,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
     return cached;
   }
 
-  private void putIfAbsent(Query query, DocIdSet set, IndexReader.CacheHelper cacheHelper) {
+  private void putIfAbsent(Query query, DocIdSet set, CacheHelper cacheHelper) {
     assert query instanceof BoostQuery == false;
     assert query instanceof ConstantScoreQuery == false;
     // under a lock to make sure that mostRecentlyUsedQueries and cache remain sync'ed
@@ -479,7 +478,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
       } else {
         query = singleton;
       }
-      final IndexReader.CacheKey key = cacheHelper.getKey();
+      final CacheKey key = cacheHelper.getKey();
       LeafCache leafCache = cache.get(key);
       if (leafCache == null) {
         leafCache = new LeafCache(key);
@@ -893,7 +892,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
         return in.scorerSupplier(context);
       }
 
-      final IndexReader.CacheHelper cacheHelper = context.reader().getCoreCacheHelper();
+      final CacheHelper cacheHelper = context.reader().getCoreCacheHelper();
       if (cacheHelper == null) {
         // this reader has no cache helper
         return in.scorerSupplier(context);
@@ -940,10 +939,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
               }
 
               return new ConstantScoreScorer(
-                  LRUWarmableQueryCache.CachingWrapperWeight.this,
-                  0f,
-                  ScoreMode.COMPLETE_NO_SCORES,
-                  disi);
+                  CachingWrapperWeight.this, 0f, ScoreMode.COMPLETE_NO_SCORES, disi);
             }
 
             @Override
@@ -969,10 +965,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
         @Override
         public Scorer get(long LeadCost) throws IOException {
           return new ConstantScoreScorer(
-              LRUWarmableQueryCache.CachingWrapperWeight.this,
-              0f,
-              ScoreMode.COMPLETE_NO_SCORES,
-              disi);
+              CachingWrapperWeight.this, 0f, ScoreMode.COMPLETE_NO_SCORES, disi);
         }
 
         @Override
@@ -1013,7 +1006,7 @@ public class LRUWarmableQueryCache implements QueryCache, Accountable, CacheMetr
         return in.bulkScorer(context);
       }
 
-      final IndexReader.CacheHelper cacheHelper = context.reader().getCoreCacheHelper();
+      final CacheHelper cacheHelper = context.reader().getCoreCacheHelper();
       if (cacheHelper == null) {
         // this reader has no cacheHelper
         return in.bulkScorer(context);

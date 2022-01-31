@@ -44,7 +44,7 @@ import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.rescore.RescorerCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.search.FetchTaskCreator;
-import com.yelp.nrtsearch.server.luceneserver.search.LRUWarmableQueryCache;
+import com.yelp.nrtsearch.server.luceneserver.search.cache.LRUWarmableQueryCache;
 import com.yelp.nrtsearch.server.luceneserver.search.cache.NrtQueryCache;
 import com.yelp.nrtsearch.server.luceneserver.similarity.SimilarityCreator;
 import com.yelp.nrtsearch.server.luceneserver.warming.Warmer;
