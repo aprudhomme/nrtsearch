@@ -64,10 +64,11 @@ import org.junit.rules.TemporaryFolder;
 
 public class TestServer {
   private static final List<TestServer> createdServers = new ArrayList<>();
-  private static final String SERVICE_NAME = "test_server";
-  private static final String TEST_BUCKET = "test-server-data-bucket";
-  private static final List<String> simpleFieldNames = List.of("id", "field1", "field2");
-  private static final List<Field> simpleFields =
+  public static final String SERVICE_NAME = "test_server";
+  public static final String TEST_BUCKET = "test-server-data-bucket";
+  public static final String S3_ENDPOINT = "http://127.0.0.1:8011";
+  public static final List<String> simpleFieldNames = List.of("id", "field1", "field2");
+  public static final List<Field> simpleFields =
       List.of(
           Field.newBuilder()
               .setName("id")
@@ -95,7 +96,7 @@ public class TestServer {
   private LuceneServerClient client;
   private LuceneServerImpl serverImpl;
 
-  private static void initS3(TemporaryFolder folder) throws IOException {
+  public static void initS3(TemporaryFolder folder) throws IOException {
     if (api == null) {
       Path s3Directory = folder.newFolder("s3").toPath();
       api = S3Mock.create(8011, s3Directory.toAbsolutePath().toString());
@@ -122,7 +123,7 @@ public class TestServer {
     Files.createDirectories(archiverDir);
 
     AmazonS3 s3 = new AmazonS3Client(new AnonymousAWSCredentials());
-    s3.setEndpoint("http://127.0.0.1:8011");
+    s3.setEndpoint(S3_ENDPOINT);
     s3.createBucket(TEST_BUCKET);
     TransferManager transferManager =
         TransferManagerBuilder.standard().withS3Client(s3).withShutDownThreadPools(false).build();
@@ -178,6 +179,10 @@ public class TestServer {
 
   public String getServiceName() {
     return serverImpl.getGlobalState().getConfiguration().getServiceName();
+  }
+
+  public GlobalState getGlobalState() {
+    return serverImpl.getGlobalState();
   }
 
   public void cleanup() {
