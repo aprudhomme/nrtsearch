@@ -18,6 +18,7 @@ package com.yelp.nrtsearch.server.luceneserver;
 import com.yelp.nrtsearch.server.backup.Archiver;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.config.ThreadPoolConfiguration;
+import com.yelp.nrtsearch.server.grpc.CreateIndexRequest;
 import com.yelp.nrtsearch.server.grpc.DummyResponse;
 import com.yelp.nrtsearch.server.grpc.StartIndexRequest;
 import com.yelp.nrtsearch.server.grpc.StartIndexResponse;
@@ -78,10 +79,18 @@ public abstract class GlobalState implements Closeable {
   public static GlobalState createState(
       LuceneServerConfiguration luceneServerConfiguration, Archiver incArchiver)
       throws IOException {
+    return createState(luceneServerConfiguration, incArchiver, null);
+  }
+
+  public static GlobalState createState(
+      LuceneServerConfiguration luceneServerConfiguration,
+      Archiver incArchiver,
+      Archiver legacyArchiver)
+      throws IOException {
     if (luceneServerConfiguration.getStateConfig().useLegacyStateManagement()) {
       return new LegacyGlobalState(luceneServerConfiguration, incArchiver);
     } else {
-      return new BackendGlobalState(luceneServerConfiguration, incArchiver);
+      return new BackendGlobalState(luceneServerConfiguration, incArchiver, legacyArchiver);
     }
   }
 
@@ -186,6 +195,9 @@ public abstract class GlobalState implements Closeable {
 
   /** Create a new index. */
   public abstract IndexState createIndex(String name) throws IOException;
+
+  /** Create a new index based on the given create request. */
+  public abstract IndexState createIndex(CreateIndexRequest createIndexRequest) throws IOException;
 
   public abstract IndexState getIndex(String name, boolean hasRestore) throws IOException;
 

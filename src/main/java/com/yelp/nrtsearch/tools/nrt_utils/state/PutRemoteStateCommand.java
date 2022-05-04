@@ -16,6 +16,7 @@
 package com.yelp.nrtsearch.tools.nrt_utils.state;
 
 import com.amazonaws.services.s3.AmazonS3;
+import com.google.common.annotations.VisibleForTesting;
 import com.yelp.nrtsearch.server.backup.VersionManager;
 import com.yelp.nrtsearch.server.luceneserver.IndexBackupUtils;
 import com.yelp.nrtsearch.server.luceneserver.state.StateUtils;
@@ -89,10 +90,18 @@ public class PutRemoteStateCommand implements Callable<Integer> {
       description = "If present, writes current state to this file before uploading")
   private String backupFile;
 
+  private AmazonS3 s3Client;
+
+  @VisibleForTesting
+  void setS3Client(AmazonS3 s3Client) {
+    this.s3Client = s3Client;
+  }
+
   @Override
   public Integer call() throws Exception {
-    AmazonS3 s3Client =
-        StateCommandUtils.createS3Client(bucketName, region, credsFile, credsProfile);
+    if (s3Client == null) {
+      s3Client = StateCommandUtils.createS3Client(bucketName, region, credsFile, credsProfile);
+    }
     VersionManager versionManager = new VersionManager(s3Client, bucketName);
 
     String resolvedResourceName =
@@ -112,7 +121,11 @@ public class PutRemoteStateCommand implements Callable<Integer> {
       String currentFileContents =
           StateCommandUtils.getStateFileContents(
               versionManager, serviceName, resolvedResourceName, stateFileName);
-      StateCommandUtils.writeStringToFile(currentFileContents, Path.of(backupFile).toFile());
+      if (currentFileContents != null) {
+        StateCommandUtils.writeStringToFile(currentFileContents, Path.of(backupFile).toFile());
+      } else {
+        System.out.println("No existing state in backend, skipping backup");
+      }
     }
 
     StateCommandUtils.writeStateDataToBackend(

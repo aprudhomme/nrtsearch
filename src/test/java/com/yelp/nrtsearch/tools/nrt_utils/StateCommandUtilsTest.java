@@ -388,4 +388,19 @@ public class StateCommandUtilsTest {
         StateCommandUtils.getResourceName(versionManager, SERVICE_NAME, "test_index", false);
     assertEquals(server.getGlobalState().getDataResourceForIndex("test_index"), resourceName);
   }
+
+  @Test
+  public void testGetIndexStateResource() {
+    assertEquals("test_index-state", StateCommandUtils.getIndexStateResource("test_index"));
+  }
+
+  @Test
+  public void testGetStateKey() {
+    assertEquals("a/b/c", StateCommandUtils.getStateKey("a", "b", "c"));
+  }
+
+  @Test
+  public void testGetStateKeyPrefix() {
+    assertEquals("a/b/", StateCommandUtils.getStateKeyPrefix("a", "b"));
+  }
 }

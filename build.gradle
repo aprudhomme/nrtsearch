@@ -177,6 +177,7 @@ test {
         events "failed"
         exceptionFormat "full"
         showStackTraces true
+        //showStandardStreams = true
     }
 }
 

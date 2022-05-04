@@ -16,6 +16,7 @@
 package com.yelp.nrtsearch.tools.nrt_utils.state;
 
 import com.amazonaws.services.s3.AmazonS3;
+import com.google.common.annotations.VisibleForTesting;
 import com.yelp.nrtsearch.server.backup.VersionManager;
 import com.yelp.nrtsearch.server.luceneserver.IndexBackupUtils;
 import com.yelp.nrtsearch.server.luceneserver.state.StateUtils;
@@ -78,10 +79,18 @@ public class GetRemoteStateCommand implements Callable<Integer> {
       description = "If index resource name already has unique identifier")
   private boolean exactResourceName;
 
+  private AmazonS3 s3Client;
+
+  @VisibleForTesting
+  void setS3Client(AmazonS3 s3Client) {
+    this.s3Client = s3Client;
+  }
+
   @Override
   public Integer call() throws Exception {
-    AmazonS3 s3Client =
-        StateCommandUtils.createS3Client(bucketName, region, credsFile, credsProfile);
+    if (s3Client == null) {
+      s3Client = StateCommandUtils.createS3Client(bucketName, region, credsFile, credsProfile);
+    }
     VersionManager versionManager = new VersionManager(s3Client, bucketName);
 
     String resolvedResourceName =
@@ -100,6 +109,8 @@ public class GetRemoteStateCommand implements Callable<Integer> {
       } else {
         StateCommandUtils.writeStringToFile(stateFileContents, Path.of(outputFile).toFile());
       }
+    } else {
+      System.out.println("No state found in backend");
     }
     return 0;
   }

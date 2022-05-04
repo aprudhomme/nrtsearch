@@ -111,7 +111,7 @@ public class StateCommandUtils {
     String backendResourceName =
         IndexBackupUtils.isBackendGlobalState(resourceName)
             ? resourceName
-            : resourceName + IndexBackupUtils.INDEX_STATE_SUFFIX;
+            : getIndexStateResource(resourceName);
     long currentVersion = versionManager.getLatestVersionNumber(serviceName, backendResourceName);
     if (currentVersion == -1) {
       System.out.println(
@@ -124,18 +124,40 @@ public class StateCommandUtils {
             serviceName, backendResourceName, String.valueOf(currentVersion));
     System.out.println("Version string: " + versionStr);
 
-    String absoluteResourcePath =
-        String.format("%s/%s/%s", serviceName, backendResourceName, versionStr);
+    String absoluteResourcePath = getStateKey(serviceName, backendResourceName, versionStr);
     if (!versionManager
         .getS3()
         .doesObjectExist(versionManager.getBucketName(), absoluteResourcePath)) {
       System.out.println("Resource does not exist: " + absoluteResourcePath);
       return null;
     }
-    S3Object stateObject =
-        versionManager.getS3().getObject(versionManager.getBucketName(), absoluteResourcePath);
-    InputStream contents = stateObject.getObjectContent();
 
+    String stateStr =
+        getStateFileContentsFromS3(
+            versionManager.getS3(),
+            versionManager.getBucketName(),
+            absoluteResourcePath,
+            stateFileName);
+    if (stateStr == null) {
+      System.out.println("No state file found in archive");
+    }
+    return stateStr;
+  }
+
+  /**
+   * Get the contents of a state file archive stored in S3.
+   *
+   * @param s3Client s3 client
+   * @param bucketName bucket name
+   * @param key key for state file archive
+   * @param stateFileName name of state file within archive
+   * @return contents of state file as string
+   * @throws IOException
+   */
+  public static String getStateFileContentsFromS3(
+      AmazonS3 s3Client, String bucketName, String key, String stateFileName) throws IOException {
+    S3Object stateObject = s3Client.getObject(bucketName, key);
+    InputStream contents = stateObject.getObjectContent();
     String stateStr = null;
     try (TarArchiveInputStream tarArchiveInputStream =
         new TarArchiveInputStream(new LZ4FrameInputStream(contents))) {
@@ -147,9 +169,6 @@ public class StateCommandUtils {
           stateStr = StateUtils.fromUTF8(fileData);
         }
       }
-    }
-    if (stateStr == null) {
-      System.out.println("No state file found in archive");
     }
     return stateStr;
   }
@@ -185,30 +204,45 @@ public class StateCommandUtils {
       byte[] data)
       throws IOException {
     byte[] archiveData = buildStateFileArchive(resourceName, stateFileName, data);
-    ObjectMetadata metadata = new ObjectMetadata();
-    metadata.setContentLength(archiveData.length);
 
     String versionStr = UUID.randomUUID().toString();
     String backendResourceName =
         IndexBackupUtils.isBackendGlobalState(resourceName)
             ? resourceName
             : resourceName + IndexBackupUtils.INDEX_STATE_SUFFIX;
-    String absoluteResourcePath =
-        String.format("%s/%s/%s", serviceName, backendResourceName, versionStr);
+    String absoluteResourcePath = getStateKey(serviceName, backendResourceName, versionStr);
     System.out.println("Writing to resource: " + absoluteResourcePath);
-    versionManager
-        .getS3()
-        .putObject(
-            new PutObjectRequest(
-                versionManager.getBucketName(),
-                absoluteResourcePath,
-                new ByteArrayInputStream(archiveData),
-                new ObjectMetadata()));
+    writeDataToS3(
+        versionManager.getS3(), versionManager.getBucketName(), absoluteResourcePath, archiveData);
     versionManager.blessVersion(serviceName, backendResourceName, versionStr);
   }
 
-  private static byte[] buildStateFileArchive(
-      String resourceName, String stateFileName, byte[] data) throws IOException {
+  /**
+   * Write a data buffer to an S3 object.
+   *
+   * @param s3Client s3 client
+   * @param bucketName bucket name
+   * @param key key for object to write
+   * @param data data buffer
+   */
+  public static void writeDataToS3(AmazonS3 s3Client, String bucketName, String key, byte[] data) {
+    ObjectMetadata metadata = new ObjectMetadata();
+    metadata.setContentLength(data.length);
+    s3Client.putObject(
+        new PutObjectRequest(bucketName, key, new ByteArrayInputStream(data), metadata));
+  }
+
+  /**
+   * Given the data of a state file, build an archive of the expected format and return its data.
+   *
+   * @param resourceName name of index resource
+   * @param stateFileName name of state file within archive
+   * @param data UTF-8 representation of state file
+   * @return buffer containing archive data
+   * @throws IOException
+   */
+  public static byte[] buildStateFileArchive(String resourceName, String stateFileName, byte[] data)
+      throws IOException {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
     try (ArchiveOutputStream archiveOutputStream =
         new TarArchiveOutputStream(new LZ4FrameOutputStream(outputStream))) {
@@ -298,5 +332,39 @@ public class StateCommandUtils {
         BackendGlobalState.getUniqueIndexName(resource, indexGlobalState.getId());
     System.out.println("Index state resource: " + resolvedResource);
     return resolvedResource;
+  }
+
+  /**
+   * Given an index resource (index-UUID), produce the index state resource.
+   *
+   * @param indexResource index resource
+   * @return index state resource
+   */
+  public static String getIndexStateResource(String indexResource) {
+    return indexResource + IndexBackupUtils.INDEX_STATE_SUFFIX;
+  }
+
+  /**
+   * Get the S3 key for an index state object.
+   *
+   * @param serviceName nrtsearch cluster service name
+   * @param indexStateResource index state resource
+   * @param versionStr version UUID
+   * @return S3 key for state object
+   */
+  public static String getStateKey(
+      String serviceName, String indexStateResource, String versionStr) {
+    return String.format("%s/%s/%s", serviceName, indexStateResource, versionStr);
+  }
+
+  /**
+   * Get the S3 key prefix (with trailing slash) for all index state objects for a given index.
+   *
+   * @param serviceName nrtsearch cluster service name
+   * @param indexStateResource index state resource
+   * @return S3 index state key prefix
+   */
+  public static String getStateKeyPrefix(String serviceName, String indexStateResource) {
+    return String.format("%s/%s/", serviceName, indexStateResource);
   }
 }

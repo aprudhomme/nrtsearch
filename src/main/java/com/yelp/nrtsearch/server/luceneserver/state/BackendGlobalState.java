@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.yelp.nrtsearch.server.backup.Archiver;
 import com.yelp.nrtsearch.server.config.IndexStartConfig;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
+import com.yelp.nrtsearch.server.grpc.CreateIndexRequest;
 import com.yelp.nrtsearch.server.grpc.DummyResponse;
 import com.yelp.nrtsearch.server.grpc.GlobalStateInfo;
 import com.yelp.nrtsearch.server.grpc.IndexGlobalState;
@@ -75,6 +76,7 @@ public class BackendGlobalState extends GlobalState {
   // volatile for atomic replacement
   private volatile ImmutableState immutableState;
   private final StateBackend stateBackend;
+  private final Archiver legacyArchiver;
 
   /**
    * Build unique index name from index name and instance id (UUID).
@@ -100,7 +102,24 @@ public class BackendGlobalState extends GlobalState {
   public BackendGlobalState(
       LuceneServerConfiguration luceneServerConfiguration, Archiver incArchiver)
       throws IOException {
+    this(luceneServerConfiguration, incArchiver, null);
+  }
+
+  /**
+   * Constructor.
+   *
+   * @param luceneServerConfiguration server config
+   * @param incArchiver archiver for remote backends
+   * @param legacyArchiver legacy archiver
+   * @throws IOException on filesystem error
+   */
+  public BackendGlobalState(
+      LuceneServerConfiguration luceneServerConfiguration,
+      Archiver incArchiver,
+      Archiver legacyArchiver)
+      throws IOException {
     super(luceneServerConfiguration, incArchiver);
+    this.legacyArchiver = legacyArchiver;
     stateBackend = createStateBackend();
     GlobalStateInfo globalStateInfo = stateBackend.loadOrCreateGlobalState();
     // init index state managers
@@ -199,12 +218,28 @@ public class BackendGlobalState extends GlobalState {
 
   @Override
   public synchronized IndexState createIndex(String name) throws IOException {
-    if (immutableState.globalStateInfo.getIndicesMap().containsKey(name)) {
-      throw new IllegalArgumentException("index \"" + name + "\" already exists");
+    return createIndex(CreateIndexRequest.newBuilder().setIndexName(name).build());
+  }
+
+  @Override
+  public synchronized IndexState createIndex(CreateIndexRequest createIndexRequest)
+      throws IOException {
+    String indexName = createIndexRequest.getIndexName();
+    if (immutableState.globalStateInfo.getIndicesMap().containsKey(indexName)) {
+      throw new IllegalArgumentException("index \"" + indexName + "\" already exists");
     }
-    String indexId = getIndexId();
-    IndexStateManager stateManager = createIndexStateManager(name, indexId, stateBackend);
-    stateManager.create();
+
+    String indexId;
+    IndexStateManager stateManager;
+    if (createIndexRequest.getExistsWithId().isEmpty()) {
+      indexId = getIndexId();
+      stateManager = createIndexStateManager(indexName, indexId, stateBackend);
+      stateManager.create();
+    } else {
+      indexId = createIndexRequest.getExistsWithId();
+      stateManager = createIndexStateManager(indexName, indexId, stateBackend);
+      stateManager.load();
+    }
 
     IndexGlobalState newIndexState =
         IndexGlobalState.newBuilder().setId(indexId).setStarted(false).build();
@@ -212,14 +247,14 @@ public class BackendGlobalState extends GlobalState {
         immutableState
             .globalStateInfo
             .toBuilder()
-            .putIndices(name, newIndexState)
+            .putIndices(indexName, newIndexState)
             .setGen(immutableState.globalStateInfo.getGen() + 1)
             .build();
     stateBackend.commitGlobalState(updatedState);
 
     Map<String, IndexStateManager> updatedIndexStateManagerMap =
         new HashMap<>(immutableState.indexStateManagerMap);
-    updatedIndexStateManagerMap.put(name, stateManager);
+    updatedIndexStateManagerMap.put(indexName, stateManager);
     immutableState = new ImmutableState(updatedState, updatedIndexStateManagerMap);
 
     return stateManager.getCurrent();
@@ -316,7 +351,7 @@ public class BackendGlobalState extends GlobalState {
       IndexStateManager indexStateManager, StartIndexRequest startIndexRequest) throws IOException {
     StartIndexHandler startIndexHandler =
         new StartIndexHandler(
-            null,
+            legacyArchiver,
             getIncArchiver().orElse(null),
             getConfiguration().getArchiveDirectory(),
             getConfiguration().getBackupWithInArchiver(),
