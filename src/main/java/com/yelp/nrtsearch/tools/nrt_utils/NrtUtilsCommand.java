@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.tools.nrt_utils;
 
+import com.yelp.nrtsearch.tools.nrt_utils.incremental.DeleteIncrementalSnapshotsCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.incremental.IncrementalDataCleanupCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.incremental.ListSnapshotsCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.incremental.RestoreIncrementalCommand;
@@ -27,6 +28,7 @@ import picocli.CommandLine;
     name = "nrt_utils",
     synopsisSubcommandLabel = "COMMAND",
     subcommands = {
+      DeleteIncrementalSnapshotsCommand.class,
       GetRemoteStateCommand.class,
       IncrementalDataCleanupCommand.class,
       ListSnapshotsCommand.class,
