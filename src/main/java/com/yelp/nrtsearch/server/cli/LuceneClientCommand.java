@@ -47,6 +47,7 @@ import picocli.CommandLine;
       SettingsCommand.class,
       SettingsV2Command.class,
       StartIndexCommand.class,
+      StartIndexV2Command.class,
       StatsCommand.class,
       StatusCommand.class,
       StopIndexCommand.class,
