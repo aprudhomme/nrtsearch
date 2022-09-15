@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.sortedset.DefaultSortedSetDocValuesReaderState;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState;
@@ -57,14 +58,18 @@ import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexReader.CacheHelper;
+import org.apache.lucene.index.IndexReader.CacheKey;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.KeepOnlyLastCommitDeletionPolicy;
+import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.LiveIndexWriterConfig;
 import org.apache.lucene.index.MergePolicy;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.PersistentSnapshotDeletionPolicy;
 import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.index.SimpleMergedSegmentWarmer;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.search.ControlledRealTimeReopenThread;
 import org.apache.lucene.search.IndexSearcher;
@@ -75,6 +80,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NRTCachingDirectory;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.PrintStreamInfoStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -496,6 +502,9 @@ public class ShardState implements Closeable {
       if (loadEagerOrdinals) {
         loadEagerGlobalOrdinals(reader, indexState);
       }
+      if (false) {
+        warmSearcher(searcher, previousReader);
+      }
       if (collectMetrics) {
         IndexMetrics.updateReaderStats(indexState.getName(), reader);
         IndexMetrics.updateSearcherStats(indexState.getName(), searcher);
@@ -503,7 +512,44 @@ public class ShardState implements Closeable {
       return searcher;
     }
 
-    private void loadEagerGlobalOrdinals(IndexReader reader, IndexState indexState)
+    public void warmSearcher(IndexSearcher searcher, IndexReader previousReader) {
+      Set<CacheKey> previousKeys = new HashSet<>();
+      if (previousReader != null) {
+        for (LeafReaderContext context : previousReader.leaves()) {
+          CacheHelper helper = context.reader().getCoreCacheHelper();
+          if (helper != null) {
+            previousKeys.add(helper.getKey());
+          }
+        }
+      }
+
+      List<LeafReaderContext> contextsToWarm =
+          searcher.getIndexReader().leaves().stream()
+              .filter(
+                  (context) -> {
+                    CacheHelper helper = context.reader().getCoreCacheHelper();
+                    return helper != null && !previousKeys.contains(helper.getKey());
+                  })
+              .collect(Collectors.toList());
+
+      if (contextsToWarm.isEmpty()) {
+        logger.debug("No new contexts to warm for searcher");
+        return;
+      }
+
+      logger.info("Warming new contexts: " + contextsToWarm);
+      //SimpleMergedSegmentWarmer smsw = new SimpleMergedSegmentWarmer(new PrintStreamInfoStream(System.out));
+      SegmentWarmer smsw = new SegmentWarmer(new PrintStreamInfoStream(System.out));
+      for (LeafReaderContext context : contextsToWarm) {
+        try {
+          smsw.warm(context.reader());
+        } catch (Exception e) {
+          System.out.println("Error warming segment: " + e);
+        }
+      }
+    }
+
+      private void loadEagerGlobalOrdinals(IndexReader reader, IndexState indexState)
         throws IOException {
       for (Map.Entry<String, FieldDef> entry :
           indexState.getEagerGlobalOrdinalFields().entrySet()) {
@@ -1080,12 +1126,12 @@ public class ShardState implements Closeable {
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         } catch (StatusRuntimeException e) {
-          logger.warn(
+          /*logger.warn(
               String.format(
                   "Replica host: %s, binary port: %s cannot reach primary: %s",
                   nrtReplicaNode.getHostPort().getHostName(),
                   nrtReplicaNode.getHostPort().getPort(),
-                  nrtReplicaNode.getPrimaryAddress()));
+                  nrtReplicaNode.getPrimaryAddress()));*/
         }
       }
     }

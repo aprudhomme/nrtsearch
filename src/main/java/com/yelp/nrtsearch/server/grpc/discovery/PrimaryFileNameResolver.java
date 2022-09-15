@@ -124,7 +124,7 @@ public class PrimaryFileNameResolver extends NameResolver {
       List<Node> nodes = objectMapper.readValue(nodeAddressesFile, new TypeReference<>() {});
       return nodes == null ? Collections.emptyList() : nodes;
     } catch (IOException e) {
-      logger.warn("Unable to read file: {}", nodeAddressesFile, e);
+      //logger.warn("Unable to read file: {}", nodeAddressesFile, e);
       return Collections.emptyList();
     }
   }

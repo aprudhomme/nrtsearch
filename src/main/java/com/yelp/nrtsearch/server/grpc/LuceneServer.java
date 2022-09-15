@@ -70,11 +70,15 @@ import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.hotspot.DefaultExports;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.instrument.Instrumentation;
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -166,15 +170,17 @@ public class LuceneServer {
                 .withCollectorRegistry(collectorRegistry),
             serviceName,
             nodeName);
+    ThreadPoolExecutor tpe = ThreadPoolExecutorFactory.getThreadPoolExecutor(
+        ThreadPoolExecutorFactory.ExecutorType.LUCENESERVER,
+        luceneServerConfiguration.getThreadPoolConfiguration());
+    tpe.prestartAllCoreThreads();
     /* The port on which the server should run */
     server =
         ServerBuilder.forPort(luceneServerConfiguration.getPort())
-            .addService(ServerInterceptors.intercept(serverImpl, monitoringInterceptor))
-            .addService(ProtoReflectionService.newInstance())
-            .executor(
-                ThreadPoolExecutorFactory.getThreadPoolExecutor(
-                    ThreadPoolExecutorFactory.ExecutorType.LUCENESERVER,
-                    luceneServerConfiguration.getThreadPoolConfiguration()))
+            //.addService(ServerInterceptors.intercept(serverImpl, monitoringInterceptor))
+            .addService(serverImpl)
+            //.addService(ProtoReflectionService.newInstance())
+            .executor(tpe)
             .maxInboundMessageSize(MAX_MESSAGE_BYTES_SIZE)
             .compressorRegistry(LuceneServerStubBuilder.COMPRESSOR_REGISTRY)
             .decompressorRegistry(LuceneServerStubBuilder.DECOMPRESSOR_REGISTRY)
@@ -275,7 +281,22 @@ public class LuceneServer {
 
   /** Main launches the server from the command line. */
   public static void main(String[] args) {
+    preloadClasses();
     System.exit(new CommandLine(new LuceneServerCommand()).execute(args));
+  }
+
+  public static void preloadClasses() {
+    long start = System.nanoTime();
+    try (BufferedReader br = new BufferedReader(new FileReader("./classes"))) {
+      String line;
+      while ((line = br.readLine()) != null) {
+        LuceneServer.class.getClassLoader().loadClass(line);
+      }
+    } catch (IOException | ClassNotFoundException e) {
+      System.out.println("Error warming classes: " + e);
+    }
+    long end = System.nanoTime();
+    System.out.println("Class warming: " + ((end - start) / 1000000.0 + "ms"));
   }
 
   @CommandLine.Command(
@@ -1093,6 +1114,7 @@ public class LuceneServer {
     public void search(
         SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
       try {
+        long start = System.nanoTime();
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
             searchRequest.getResponseCompression(), searchResponseStreamObserver);
@@ -1100,6 +1122,8 @@ public class LuceneServer {
         SearchResponse reply = searchHandler.handle(indexState, searchRequest);
         searchResponseStreamObserver.onNext(reply);
         searchResponseStreamObserver.onCompleted();
+        long end = System.nanoTime();
+        System.out.println("Request time: " + ((end - start)/1000000.0) + "ms");
       } catch (IOException e) {
         logger.warn(
             "error while trying to read index state dir for indexName: "
@@ -1347,6 +1371,15 @@ public class LuceneServer {
     public void status(
         HealthCheckRequest request, StreamObserver<HealthCheckResponse> responseObserver) {
       try {
+        System.out.println(Arrays.toString(ClassLoader.class.getDeclaredFields()));
+        Field f = ClassLoader.class.getDeclaredField("classes");
+        f.setAccessible(true);
+
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        Vector<Class> classes =  (Vector<Class>) f.get(classLoader);
+        for (Class c : classes) {
+          System.out.println(c.getName());
+        }
         HealthCheckResponse reply =
             HealthCheckResponse.newBuilder().setHealth(TransferStatusCode.Done).build();
         logger.debug("HealthCheckResponse returned " + reply.toString());

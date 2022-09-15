@@ -46,16 +46,22 @@ public class LuceneServerMonitoringServerInterceptor implements ServerIntercepto
   @Override
   public <R, S> ServerCall.Listener<R> interceptCall(
       ServerCall<R, S> call, Metadata requestHeaders, ServerCallHandler<R, S> next) {
-    MethodDescriptor<R, S> method = call.getMethodDescriptor();
-    com.yelp.nrtsearch.server.monitoring.ServerMetrics metrics =
-        serverMetricsFactory.createMetricsForMethod(method);
-    com.yelp.nrtsearch.server.monitoring.GrpcMethod grpcMethod =
-        com.yelp.nrtsearch.server.monitoring.GrpcMethod.of(method);
-    ServerCall<R, S> monitoringCall =
-        new MonitoringServerCall(call, clock, grpcMethod, metrics, configuration);
-    return new MonitoringServerCallListener<>(
-        next.startCall(monitoringCall, requestHeaders),
-        metrics,
-        com.yelp.nrtsearch.server.monitoring.GrpcMethod.of(method));
+    long start = System.nanoTime();
+    try {
+      MethodDescriptor<R, S> method = call.getMethodDescriptor();
+      com.yelp.nrtsearch.server.monitoring.ServerMetrics metrics =
+          serverMetricsFactory.createMetricsForMethod(method);
+      com.yelp.nrtsearch.server.monitoring.GrpcMethod grpcMethod =
+          com.yelp.nrtsearch.server.monitoring.GrpcMethod.of(method);
+      ServerCall<R, S> monitoringCall =
+          new MonitoringServerCall(call, clock, grpcMethod, metrics, configuration);
+      return new MonitoringServerCallListener<>(
+          next.startCall(monitoringCall, requestHeaders),
+          metrics,
+          com.yelp.nrtsearch.server.monitoring.GrpcMethod.of(method));
+    } finally {
+      long end = System.nanoTime();
+      System.out.println("Intercept time: " + ((end - start)/1000000.0) + "ms");
+    }
   }
 }

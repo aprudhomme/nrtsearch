@@ -43,9 +43,12 @@ class MonitoringServerCallListener<R> extends ForwardingServerCallListener<R> {
 
   @Override
   public void onMessage(R request) {
+    long start = System.nanoTime();
     if (grpcMethod.streamsRequests()) {
       serverMetrics.recordStreamMessageReceived();
     }
     super.onMessage(request);
+    long end = System.nanoTime();
+    System.out.println("onMessage time: " + ((end - start)/1000000.0) + "ms");
   }
 }
