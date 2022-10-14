@@ -448,7 +448,7 @@ public class LegacyIndexState extends IndexState implements Restorable {
   private final Map<String, FieldDef> eagerGlobalOrdinalFields = new ConcurrentHashMap<>();
 
   /** {@link Bindings} to pass when evaluating expressions. */
-  private final Bindings exprBindings = new FieldDefBindings(fields);
+  private final Bindings exprBindings = new FieldDefBindings(this::getField);
 
   private final Map<Integer, ShardState> shards = new ConcurrentHashMap<>();
 

@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.lucene.expressions.Bindings;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.DoubleValues;
 import org.apache.lucene.search.DoubleValuesSource;
@@ -33,6 +34,11 @@ import org.apache.lucene.search.IndexSearcher;
 import org.junit.Test;
 
 public class JsScriptBindingsTest {
+  private static final Bindings EMPTY_BINDINGS =
+      new FieldDefBindings(
+          fieldName -> {
+            throw new IllegalArgumentException("Unknown field: " + fieldName);
+          });
 
   static class DummyValuesSource extends DoubleValuesSource {
 
@@ -79,7 +85,7 @@ public class JsScriptBindingsTest {
 
   @Test(expected = NullPointerException.class)
   public void testNullParams() {
-    new JsScriptBindings(new FieldDefBindings(Collections.emptyMap()), null);
+    new JsScriptBindings(EMPTY_BINDINGS, null);
   }
 
   @Test
@@ -88,8 +94,7 @@ public class JsScriptBindingsTest {
     params.put("param1", 100);
     params.put("param2", 1.11);
 
-    JsScriptBindings bindings =
-        new JsScriptBindings(new FieldDefBindings(Collections.emptyMap()), params);
+    JsScriptBindings bindings = new JsScriptBindings(EMPTY_BINDINGS, params);
     DoubleValuesSource p1Source = bindings.getDoubleValuesSource("param1");
     assertEquals(100D, p1Source.getValues(null, null).doubleValue(), 0.001);
     DoubleValuesSource p2Source = bindings.getDoubleValuesSource("param2");
@@ -108,7 +113,7 @@ public class JsScriptBindingsTest {
     fieldDefMap.put("field1", new VirtualFieldDef("field1", field1Source));
     fieldDefMap.put("field2", new VirtualFieldDef("field2", field2Source));
 
-    JsScriptBindings bindings = new JsScriptBindings(new FieldDefBindings(fieldDefMap), params);
+    JsScriptBindings bindings = new JsScriptBindings(getBindingsForFields(fieldDefMap), params);
     DoubleValuesSource f1Source = bindings.getDoubleValuesSource("field1");
     DoubleValuesSource f2Source = bindings.getDoubleValuesSource("field2");
     assertNotSame(f1Source, f2Source);
@@ -128,7 +133,7 @@ public class JsScriptBindingsTest {
     fieldDefMap.put("field1", new VirtualFieldDef("field1", field1Source));
     fieldDefMap.put("field2", new VirtualFieldDef("field2", field2Source));
 
-    JsScriptBindings bindings = new JsScriptBindings(new FieldDefBindings(fieldDefMap), params);
+    JsScriptBindings bindings = new JsScriptBindings(getBindingsForFields(fieldDefMap), params);
     bindings.getDoubleValuesSource("invalid");
   }
 
@@ -144,7 +149,7 @@ public class JsScriptBindingsTest {
     fieldDefMap.put("field1", new VirtualFieldDef("field1", field1Source));
     fieldDefMap.put("field2", new VirtualFieldDef("field2", field2Source));
 
-    JsScriptBindings bindings = new JsScriptBindings(new FieldDefBindings(fieldDefMap), params);
+    JsScriptBindings bindings = new JsScriptBindings(getBindingsForFields(fieldDefMap), params);
     bindings.getDoubleValuesSource("doc['invalid'].value");
   }
 
@@ -160,7 +165,7 @@ public class JsScriptBindingsTest {
     fieldDefMap.put("field1", new VirtualFieldDef("field1", field1Source));
     fieldDefMap.put("field2", new VirtualFieldDef("field2", field2Source));
 
-    JsScriptBindings bindings = new JsScriptBindings(new FieldDefBindings(fieldDefMap), params);
+    JsScriptBindings bindings = new JsScriptBindings(getBindingsForFields(fieldDefMap), params);
     bindings.getDoubleValuesSource("doc[1].value");
   }
 
@@ -176,7 +181,7 @@ public class JsScriptBindingsTest {
     fieldDefMap.put("field1", new VirtualFieldDef("field1", field1Source));
     fieldDefMap.put("field2", new VirtualFieldDef("field2", field2Source));
 
-    JsScriptBindings bindings = new JsScriptBindings(new FieldDefBindings(fieldDefMap), params);
+    JsScriptBindings bindings = new JsScriptBindings(getBindingsForFields(fieldDefMap), params);
     bindings.getDoubleValuesSource("not_doc['field1'].value");
   }
 
@@ -192,7 +197,7 @@ public class JsScriptBindingsTest {
     fieldDefMap.put("field1", new VirtualFieldDef("field1", field1Source));
     fieldDefMap.put("field2", new VirtualFieldDef("field2", field2Source));
 
-    JsScriptBindings bindings = new JsScriptBindings(new FieldDefBindings(fieldDefMap), params);
+    JsScriptBindings bindings = new JsScriptBindings(getBindingsForFields(fieldDefMap), params);
     bindings.getDoubleValuesSource("doc['field1']");
   }
 
@@ -202,8 +207,7 @@ public class JsScriptBindingsTest {
     params.put("param1", 100);
     params.put("param2", 1.11);
 
-    JsScriptBindings bindings =
-        new JsScriptBindings(new FieldDefBindings(Collections.emptyMap()), params);
+    JsScriptBindings bindings = new JsScriptBindings(EMPTY_BINDINGS, params);
     DoubleValuesSource p1Source = bindings.getDoubleValuesSource("param1");
     DoubleValuesSource p2Source = bindings.getDoubleValuesSource("param2");
     DoubleValuesSource p1SourceNext = bindings.getDoubleValuesSource("param1");
@@ -211,5 +215,16 @@ public class JsScriptBindingsTest {
     assertNotSame(p1Source, p2Source);
     assertSame(p1Source, p1SourceNext);
     assertSame(p2Source, p2SourceNext);
+  }
+
+  private Bindings getBindingsForFields(Map<String, FieldDef> fields) {
+    return new FieldDefBindings(
+        fieldName -> {
+          FieldDef fd = fields.get(fieldName);
+          if (fd == null) {
+            throw new IllegalArgumentException("Unknown field: " + fieldName);
+          }
+          return fd;
+        });
   }
 }

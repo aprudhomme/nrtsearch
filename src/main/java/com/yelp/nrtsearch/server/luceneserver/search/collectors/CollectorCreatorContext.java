@@ -15,61 +15,100 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.search.collectors;
 
-import com.yelp.nrtsearch.server.grpc.SearchRequest;
-import com.yelp.nrtsearch.server.luceneserver.IndexState;
-import com.yelp.nrtsearch.server.luceneserver.ShardState;
+import com.yelp.nrtsearch.server.luceneserver.doc.DocLookup;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
-import com.yelp.nrtsearch.server.luceneserver.search.SearchContext;
 import java.util.Map;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager.SearcherAndTaxonomy;
 
 /**
  * Context information needed to create collectors. Used for {@link DocCollector} and {@link
- * AdditionalCollectorManager} building. The search context can be accessed through {@link
- * AdditionalCollectorManager#setSearchContext(SearchContext)}
+ * AdditionalCollectorManager} building.
  */
 public class CollectorCreatorContext {
-  private final SearchRequest request;
-  private final IndexState indexState;
-  private final ShardState shardState;
+  private final int hitsToCollect;
+  private final double searchTimeoutSec;
+  private final int searchTimeoutCheckEvery;
+  private final int searchTerminateAfter;
+  private final boolean disallowPartialResults;
+  private final boolean profile;
+  private final DocLookup docLookup;
   private final Map<String, FieldDef> queryFields;
   private final SearcherAndTaxonomy searcherAndTaxonomy;
 
   /**
    * Constructor.
    *
-   * @param request search request
-   * @param indexState index state
-   * @param shardState shard state
+   * @param hitsToCollect number of hits to collect
+   * @param searchTimeoutSec timeout for recall phase, or 0 for none
+   * @param searchTimeoutCheckEvery number of docs to collect in segment before checking timeout, or
+   *     0 for segment boundary
+   * @param searchTerminateAfter number of docs to collect before terminating collection early, or 0
+   *     for unlimited
+   * @param disallowPartialResults if a search timeout/terminate early should be an error condition
+   * @param profile if extra profiling info should be collected
    * @param queryFields all possible fields usable for this query
    * @param searcherAndTaxonomy searcher for query
    */
   public CollectorCreatorContext(
-      SearchRequest request,
-      IndexState indexState,
-      ShardState shardState,
+      int hitsToCollect,
+      double searchTimeoutSec,
+      int searchTimeoutCheckEvery,
+      int searchTerminateAfter,
+      boolean disallowPartialResults,
+      boolean profile,
+      DocLookup docLookup,
       Map<String, FieldDef> queryFields,
       SearcherAndTaxonomy searcherAndTaxonomy) {
-    this.request = request;
-    this.indexState = indexState;
-    this.shardState = shardState;
+    this.hitsToCollect = hitsToCollect;
+    this.searchTimeoutSec = searchTimeoutSec;
+    this.searchTimeoutCheckEvery = searchTimeoutCheckEvery;
+    this.searchTerminateAfter = searchTerminateAfter;
+    this.disallowPartialResults = disallowPartialResults;
+    this.profile = profile;
+    this.docLookup = docLookup;
     this.queryFields = queryFields;
     this.searcherAndTaxonomy = searcherAndTaxonomy;
   }
 
-  /** Get search request */
-  public SearchRequest getRequest() {
-    return request;
+  /** Get number of hits to collect during recall. */
+  public int getHitsToCollect() {
+    return hitsToCollect;
   }
 
-  /** Get index state */
-  public IndexState getIndexState() {
-    return indexState;
+  /** Get search timeout for recall phase, or 0 for none. */
+  public double getSearchTimeoutSec() {
+    return searchTimeoutSec;
   }
 
-  /** Get shard state */
-  public ShardState getShardState() {
-    return shardState;
+  /**
+   * Get how may docs to collect in a segment before checking the search timeout, or 0 for segment
+   * boundary only.
+   */
+  public int getSearchTimeoutCheckEvery() {
+    return searchTimeoutCheckEvery;
+  }
+
+  /** Get how many documents to collect before terminating collection early, or 0 for unlimited. */
+  public int getSearchTerminateAfter() {
+    return searchTerminateAfter;
+  }
+
+  /**
+   * Get if hitting the search timeout or terminate after limit is an error condition, otherwise
+   * proceed with partial results.
+   */
+  public boolean getDisallowPartialResults() {
+    return disallowPartialResults;
+  }
+
+  /** Get if search profiling info should be collected. */
+  public boolean getProfile() {
+    return profile;
+  }
+
+  /** Get doc value accessor for query fields. */
+  public DocLookup getDocLookup() {
+    return docLookup;
   }
 
   /** Get all possible field usable for this query */

@@ -35,24 +35,34 @@ public class RelevanceCollector extends DocCollector {
 
   private final CollectorManager<TopScoreDocCollector, TopDocs> manager;
 
+  /**
+   * Constructor.
+   *
+   * @param context collector creator context
+   * @param additionalCollectors addition collectors for query
+   * @param totalHitsThreshold minimum number of hit to count accurately, 0 for default (1000),
+   *     Integer.MAX_VALUE for unlimited
+   */
   public RelevanceCollector(
       CollectorCreatorContext context,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
-          additionalCollectors) {
+          additionalCollectors,
+      int totalHitsThreshold) {
     super(context, additionalCollectors);
     FieldDoc searchAfter = null;
     int topHits = getNumHitsToCollect();
-    int totalHitsThreshold = TOTAL_HITS_THRESHOLD;
+    int collectorTotalHitsThreshold = TOTAL_HITS_THRESHOLD;
     // if there are additional collectors, we cannot skip any recalled docs
     if (!additionalCollectors.isEmpty()) {
-      totalHitsThreshold = Integer.MAX_VALUE;
-      if (context.getRequest().getTotalHitsThreshold() != 0) {
+      collectorTotalHitsThreshold = Integer.MAX_VALUE;
+      if (totalHitsThreshold != 0) {
         logger.warn("Query totalHitsThreshold ignored when using additional collectors");
       }
-    } else if (context.getRequest().getTotalHitsThreshold() != 0) {
-      totalHitsThreshold = context.getRequest().getTotalHitsThreshold();
+    } else if (totalHitsThreshold != 0) {
+      collectorTotalHitsThreshold = totalHitsThreshold;
     }
-    manager = TopScoreDocCollector.createSharedManager(topHits, searchAfter, totalHitsThreshold);
+    manager =
+        TopScoreDocCollector.createSharedManager(topHits, searchAfter, collectorTotalHitsThreshold);
   }
 
   @Override

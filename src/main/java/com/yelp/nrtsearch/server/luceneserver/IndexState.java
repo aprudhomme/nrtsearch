@@ -106,7 +106,7 @@ public abstract class IndexState implements Closeable {
    * Index level doc values lookup. Generates {@link
    * com.yelp.nrtsearch.server.luceneserver.doc.SegmentDocLookup} for a given lucene segment.
    */
-  public final DocLookup docLookup = new DocLookup(this);
+  public final DocLookup docLookup = new DocLookup(this::getField);
 
   /** Index-time analyzer. */
   public final Analyzer indexAnalyzer =

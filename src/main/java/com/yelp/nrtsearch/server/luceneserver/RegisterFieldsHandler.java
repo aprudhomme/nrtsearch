@@ -23,22 +23,20 @@ import com.yelp.nrtsearch.server.grpc.Field;
 import com.yelp.nrtsearch.server.grpc.FieldDefRequest;
 import com.yelp.nrtsearch.server.grpc.FieldDefResponse;
 import com.yelp.nrtsearch.server.grpc.FieldType;
+import com.yelp.nrtsearch.server.luceneserver.doc.DocLookup;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
-import com.yelp.nrtsearch.server.luceneserver.field.FieldDefBindings;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.field.IdFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.VirtualFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.script.ScoreScript;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
-import com.yelp.nrtsearch.server.luceneserver.script.js.JsScriptEngine;
 import com.yelp.nrtsearch.server.utils.ScriptParamsUtils;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.search.DoubleValuesSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -208,15 +206,6 @@ public class RegisterFieldsHandler implements Handler<FieldDefRequest, FieldDefR
     return fieldDef;
   }
 
-  /** Messy: we need this for indexed-but-not-tokenized fields, solely for .getOffsetGap I think. */
-  public static final Analyzer dummyAnalyzer =
-      new Analyzer() {
-        @Override
-        protected TokenStreamComponents createComponents(String fieldName) {
-          throw new UnsupportedOperationException();
-        }
-      };
-
   private FieldDef parseOneVirtualFieldType(
       IndexState indexState,
       Map<String, FieldDef> pendingFieldDefs,
@@ -227,20 +216,20 @@ public class RegisterFieldsHandler implements Handler<FieldDefRequest, FieldDefR
         ScriptService.getInstance().compile(currentField.getScript(), ScoreScript.CONTEXT);
     Map<String, Object> params =
         ScriptParamsUtils.decodeParams(currentField.getScript().getParamsMap());
-    // Workaround for the fact the the javascript expression may need bindings to other fields in
-    // this request.
-    // Build the complete bindings and pass it as a script parameter. We might want to think about a
-    // better way of
-    // doing this (or maybe updating index state in general).
-    if (currentField.getScript().getLang().equals(JsScriptEngine.LANG)) {
-      params = new HashMap<>(params);
 
-      Map<String, FieldDef> allFields = new HashMap<>(indexState.getAllFields());
-      allFields.putAll(pendingFieldDefs);
-      params.put("bindings", new FieldDefBindings(allFields));
-    }
-    DoubleValuesSource values = factory.newFactory(params, indexState.docLookup);
+    Map<String, FieldDef> allFields = new HashMap<>(indexState.getAllFields());
+    allFields.putAll(pendingFieldDefs);
+    DocLookup docLookup =
+        new DocLookup(
+            name -> {
+              FieldDef fd = allFields.get(name);
+              if (fd == null) {
+                throw new IllegalArgumentException("Unknown field: " + name);
+              }
+              return fd;
+            });
 
+    DoubleValuesSource values = factory.newFactory(params, docLookup);
     return new VirtualFieldDef(fieldName, values);
   }
 

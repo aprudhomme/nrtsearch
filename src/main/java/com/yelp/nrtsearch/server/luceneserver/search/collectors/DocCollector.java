@@ -16,12 +16,8 @@
 package com.yelp.nrtsearch.server.luceneserver.search.collectors;
 
 import com.yelp.nrtsearch.server.grpc.CollectorResult;
-import com.yelp.nrtsearch.server.grpc.Facet;
 import com.yelp.nrtsearch.server.grpc.ProfileResult;
-import com.yelp.nrtsearch.server.grpc.Rescorer;
-import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
-import com.yelp.nrtsearch.server.luceneserver.IndexState;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchCollectorManager;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchContext;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchCutoffWrapper;
@@ -39,11 +35,9 @@ import org.apache.lucene.search.TopDocs;
 /** Abstract base for classes that manage the collection of documents when executing queries. */
 public abstract class DocCollector {
 
-  private final SearchRequest request;
-  private final IndexState indexState;
+  private final CollectorCreatorContext context;
   private final List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
       additionalCollectors;
-  private final int numHitsToCollect;
   private boolean hadTimeout = false;
   private boolean terminatedEarly = false;
   private SearchStatsWrapper<? extends Collector> statsWrapper = null;
@@ -59,25 +53,8 @@ public abstract class DocCollector {
       CollectorCreatorContext context,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
           additionalCollectors) {
-    this.request = context.getRequest();
-    this.indexState = context.getIndexState();
+    this.context = context;
     this.additionalCollectors = additionalCollectors;
-
-    // determine how many hits to collect based on request, facets and rescore window
-    int collectHits = request.getTopHits();
-    for (Facet facet : request.getFacetsList()) {
-      int facetSample = facet.getSampleTopDocs();
-      if (facetSample > 0 && facetSample > collectHits) {
-        collectHits = facetSample;
-      }
-    }
-    for (Rescorer rescorer : request.getRescorersList()) {
-      int windowSize = rescorer.getWindowSize();
-      if (windowSize > 0 && windowSize > collectHits) {
-        collectHits = windowSize;
-      }
-    }
-    numHitsToCollect = collectHits;
   }
 
   /**
@@ -151,7 +128,7 @@ public abstract class DocCollector {
    * @return total top docs needed for query response and sample facets
    */
   public int getNumHitsToCollect() {
-    return numHitsToCollect;
+    return context.getHitsToCollect();
   }
 
   /**
@@ -164,32 +141,23 @@ public abstract class DocCollector {
   <C extends Collector> CollectorManager<? extends Collector, SearcherResult> wrapManager(
       CollectorManager<C, SearcherResult> manager) {
     CollectorManager<? extends Collector, SearcherResult> wrapped = manager;
-    double timeout =
-        request.getTimeoutSec() > 0.0
-            ? request.getTimeoutSec()
-            : indexState.getDefaultSearchTimeoutSec();
-    if (timeout > 0.0) {
-      int timeoutCheckEvery =
-          request.getTimeoutCheckEvery() > 0
-              ? request.getTimeoutCheckEvery()
-              : indexState.getDefaultSearchTimeoutCheckEvery();
+    double timeoutSec = context.getSearchTimeoutSec();
+    if (timeoutSec > 0.0) {
+      int timeoutCheckEvery = context.getSearchTimeoutCheckEvery();
       hadTimeout = false;
       wrapped =
           new SearchCutoffWrapper<>(
               wrapped,
-              timeout,
+              timeoutSec,
               timeoutCheckEvery,
-              request.getDisallowPartialResults(),
+              context.getDisallowPartialResults(),
               () -> hadTimeout = true);
     }
-    int terminateAfter =
-        request.getTerminateAfter() > 0
-            ? request.getTerminateAfter()
-            : indexState.getDefaultTerminateAfter();
+    int terminateAfter = context.getSearchTerminateAfter();
     if (terminateAfter > 0) {
       wrapped = new TerminateAfterWrapper<>(wrapped, terminateAfter, () -> terminatedEarly = true);
     }
-    if (request.getProfile()) {
+    if (context.getProfile()) {
       statsWrapper = new SearchStatsWrapper<>(wrapped);
       wrapped = statsWrapper;
     }
@@ -202,7 +170,7 @@ public abstract class DocCollector {
    */
   List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
       wrappedCollectors() {
-    if (!additionalCollectors.isEmpty() && request.getProfile()) {
+    if (!additionalCollectors.isEmpty() && context.getProfile()) {
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
           wrappedCollectors = new ArrayList<>(additionalCollectors.size());
       // hold the stats wrappers to fill profiling info later

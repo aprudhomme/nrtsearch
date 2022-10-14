@@ -18,6 +18,7 @@ package com.yelp.nrtsearch.server.luceneserver.search.collectors;
 import static com.yelp.nrtsearch.server.luceneserver.search.SearchRequestProcessor.TOTAL_HITS_THRESHOLD;
 
 import com.yelp.nrtsearch.server.grpc.CollectorResult;
+import com.yelp.nrtsearch.server.grpc.QuerySortField;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.luceneserver.SearchHandler;
 import com.yelp.nrtsearch.server.luceneserver.search.SortParser;
@@ -43,36 +44,48 @@ public class SortFieldCollector extends DocCollector {
   private final Sort sort;
   private final List<String> sortNames;
 
+  /**
+   * Constructor.
+   *
+   * @param context collector creator context
+   * @param additionalCollectors addition collectors for query
+   * @param totalHitsThreshold minimum number of hit to count accurately, 0 for default (1000),
+   *     Integer.MAX_VALUE for unlimited
+   * @param querySortField query sorting specification
+   */
   public SortFieldCollector(
       CollectorCreatorContext context,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
-          additionalCollectors) {
+          additionalCollectors,
+      int totalHitsThreshold,
+      QuerySortField querySortField) {
     super(context, additionalCollectors);
     FieldDoc searchAfter = null;
     int topHits = getNumHitsToCollect();
-    int totalHitsThreshold = TOTAL_HITS_THRESHOLD;
+    int collectorTotalHitsThreshold = TOTAL_HITS_THRESHOLD;
     // if there are additional collectors, we cannot skip any recalled docs
     if (!additionalCollectors.isEmpty()) {
-      totalHitsThreshold = Integer.MAX_VALUE;
-      if (context.getRequest().getTotalHitsThreshold() != 0) {
+      collectorTotalHitsThreshold = Integer.MAX_VALUE;
+      if (totalHitsThreshold != 0) {
         logger.warn("Query totalHitsThreshold ignored when using additional collectors");
       }
-    } else if (context.getRequest().getTotalHitsThreshold() != 0) {
-      totalHitsThreshold = context.getRequest().getTotalHitsThreshold();
+    } else if (totalHitsThreshold != 0) {
+      collectorTotalHitsThreshold = totalHitsThreshold;
     }
 
-    sortNames =
-        new ArrayList<>(context.getRequest().getQuerySort().getFields().getSortedFieldsCount());
+    sortNames = new ArrayList<>(querySortField.getFields().getSortedFieldsCount());
     try {
       sort =
           SortParser.parseSort(
-              context.getRequest().getQuerySort().getFields().getSortedFieldsList(),
+              querySortField.getFields().getSortedFieldsList(),
               sortNames,
               context.getQueryFields());
     } catch (SearchHandler.SearchHandlerException e) {
       throw new IllegalArgumentException(e);
     }
-    manager = TopFieldCollector.createSharedManager(sort, topHits, searchAfter, totalHitsThreshold);
+    manager =
+        TopFieldCollector.createSharedManager(
+            sort, topHits, searchAfter, collectorTotalHitsThreshold);
   }
 
   @Override

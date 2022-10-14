@@ -62,7 +62,15 @@ public class FieldAndFacetState {
     indexedAnalyzedFields = Collections.emptyList();
     eagerGlobalOrdinalFields = Collections.emptyMap();
     eagerFieldGlobalOrdinalFields = Collections.emptyMap();
-    exprBindings = new FieldDefBindings(fields);
+    exprBindings =
+        new FieldDefBindings(
+            fieldName -> {
+              FieldDef fd = fields.get(fieldName);
+              if (fd == null) {
+                throw new IllegalArgumentException("Unknown field: " + fieldName);
+              }
+              return fd;
+            });
 
     facetsConfig = new FacetsConfig();
     internalFacetFieldNames = Collections.emptySet();
@@ -145,7 +153,7 @@ public class FieldAndFacetState {
     private final List<String> indexedAnalyzedFields;
     private final Map<String, FieldDef> eagerGlobalOrdinalFields;
     private final Map<String, GlobalOrdinalable> eagerFieldGlobalOrdinalFields;
-    private final Bindings exprBindings;
+    private final FieldDefBindings exprBindings;
 
     // facet
     private final FacetsConfig facetsConfig;
@@ -158,7 +166,15 @@ public class FieldAndFacetState {
       this.indexedAnalyzedFields = new ArrayList<>(initial.indexedAnalyzedFields);
       this.eagerGlobalOrdinalFields = new HashMap<>(initial.eagerGlobalOrdinalFields);
       this.eagerFieldGlobalOrdinalFields = new HashMap<>(initial.eagerFieldGlobalOrdinalFields);
-      this.exprBindings = new FieldDefBindings(this.fields);
+      this.exprBindings =
+          new FieldDefBindings(
+              fieldName -> {
+                FieldDef fd = this.fields.get(fieldName);
+                if (fd == null) {
+                  throw new IllegalArgumentException("Unknown field: " + fieldName);
+                }
+                return fd;
+              });
 
       this.facetsConfig = new FacetsConfig();
       this.internalFacetFieldNames = new HashSet<>();
@@ -174,7 +190,8 @@ public class FieldAndFacetState {
       }
     }
 
-    public Bindings getBindings() {
+    /** Get current expression binding used to compile javascript expressions. */
+    public FieldDefBindings getBindings() {
       return exprBindings;
     }
 

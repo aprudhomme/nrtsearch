@@ -16,10 +16,10 @@
 package com.yelp.nrtsearch.server.luceneserver.search;
 
 import com.yelp.nrtsearch.server.grpc.FieldDefRequest;
-import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.Builder;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.SearchState;
+import com.yelp.nrtsearch.server.luceneserver.SearchHandler.ParallelFetchConfig;
 import com.yelp.nrtsearch.server.luceneserver.ServerTestCase;
 import com.yelp.nrtsearch.server.luceneserver.doc.DefaultSharedDocContext;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreatorContext;
@@ -46,7 +46,7 @@ public class SearchContextTest extends ServerTestCase {
     public DummyCollector() {
       super(
           new CollectorCreatorContext(
-              SearchRequest.newBuilder().build(), null, null, Collections.emptyMap(), null),
+              10, 0, 0, 0, false, false, null, Collections.emptyMap(), null),
           Collections.emptyList());
     }
 
@@ -74,8 +74,6 @@ public class SearchContextTest extends ServerTestCase {
 
   private SearchContext.Builder getCompleteBuilder() throws IOException {
     return SearchContext.newBuilder()
-        .setIndexState(getGlobalState().getIndex(DEFAULT_TEST_INDEX))
-        .setShardState(getGlobalState().getIndex(DEFAULT_TEST_INDEX).getShard(0))
         .setSearcherAndTaxonomy(new SearcherAndTaxonomy(null, null))
         .setResponseBuilder(SearchResponse.newBuilder())
         .setTimestampSec(1)
@@ -87,7 +85,9 @@ public class SearchContextTest extends ServerTestCase {
         .setCollector(new DummyCollector())
         .setFetchTasks(new FetchTasks(Collections.emptyList()))
         .setRescorers(Collections.emptyList())
-        .setSharedDocContext(new DefaultSharedDocContext());
+        .setSharedDocContext(new DefaultSharedDocContext())
+        .setParallelFetchConfig(new ParallelFetchConfig(1, true, 1, 1, null))
+        .setSearchFunction(searchContext -> null);
   }
 
   @Test
@@ -103,16 +103,6 @@ public class SearchContextTest extends ServerTestCase {
   @Test(expected = NullPointerException.class)
   public void testEmpty() {
     SearchContext.newBuilder().build(true);
-  }
-
-  @Test(expected = NullPointerException.class)
-  public void testMissingIndexState() throws Exception {
-    getCompleteBuilder().setIndexState(null).build(true);
-  }
-
-  @Test(expected = NullPointerException.class)
-  public void testMissingShardState() throws Exception {
-    getCompleteBuilder().setShardState(null).build(true);
   }
 
   @Test(expected = NullPointerException.class)
@@ -173,5 +163,15 @@ public class SearchContextTest extends ServerTestCase {
   @Test(expected = NullPointerException.class)
   public void testMissingSharedDocContext() throws Exception {
     getCompleteBuilder().setSharedDocContext(null).build(true);
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testParallelFetchConfig() throws Exception {
+    getCompleteBuilder().setParallelFetchConfig(null).build(true);
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testSearchFunction() throws Exception {
+    getCompleteBuilder().setSearchFunction(null).build(true);
   }
 }

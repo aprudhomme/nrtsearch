@@ -16,8 +16,8 @@
 package com.yelp.nrtsearch.server.luceneserver.search;
 
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
-import com.yelp.nrtsearch.server.luceneserver.IndexState;
-import com.yelp.nrtsearch.server.luceneserver.ShardState;
+import com.yelp.nrtsearch.server.luceneserver.SearchHandler.ParallelFetchConfig;
+import com.yelp.nrtsearch.server.luceneserver.SearchHandler.SearchFunction;
 import com.yelp.nrtsearch.server.luceneserver.doc.SharedDocContext;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.highlights.HighlightFetchTask;
@@ -32,8 +32,6 @@ import org.apache.lucene.search.Query;
 
 /** Search context class to provide all the information to perform a search. */
 public class SearchContext implements FieldFetchContext {
-  private final IndexState indexState;
-  private final ShardState shardState;
   private final SearcherTaxonomyManager.SearcherAndTaxonomy searcherAndTaxonomy;
   private final SearchResponse.Builder responseBuilder;
 
@@ -48,10 +46,10 @@ public class SearchContext implements FieldFetchContext {
   private final List<RescoreTask> rescorers;
   private final SharedDocContext sharedDocContext;
   private final HighlightFetchTask highlightFetchTask;
+  private final ParallelFetchConfig parallelFetchConfig;
+  private final SearchFunction searchFunction;
 
   private SearchContext(Builder builder, boolean validate) {
-    this.indexState = builder.indexState;
-    this.shardState = builder.shardState;
     this.searcherAndTaxonomy = builder.searcherAndTaxonomy;
     this.responseBuilder = builder.responseBuilder;
     this.timestampSec = builder.timestampSec;
@@ -65,20 +63,12 @@ public class SearchContext implements FieldFetchContext {
     this.rescorers = builder.rescorers;
     this.sharedDocContext = builder.sharedDocContext;
     this.highlightFetchTask = builder.highlightFetchTask;
+    this.parallelFetchConfig = builder.parallelFetchConfig;
+    this.searchFunction = builder.searchFunction;
 
     if (validate) {
       validate();
     }
-  }
-
-  /** Get query index state. */
-  public IndexState getIndexState() {
-    return indexState;
-  }
-
-  /** Get query shard state. */
-  public ShardState getShardState() {
-    return shardState;
   }
 
   /** Get searcher instance for query. */
@@ -155,14 +145,22 @@ public class SearchContext implements FieldFetchContext {
     return highlightFetchTask;
   }
 
+  /** Get config for parallel field fetch * */
+  public ParallelFetchConfig getParallelFetchConfig() {
+    return parallelFetchConfig;
+  }
+
+  /** Set function to execute lucene search * */
+  public SearchFunction getSearchFunction() {
+    return searchFunction;
+  }
+
   /** Get new context builder instance * */
   public static Builder newBuilder() {
     return new Builder();
   }
 
   private void validate() {
-    Objects.requireNonNull(indexState);
-    Objects.requireNonNull(shardState);
     Objects.requireNonNull(searcherAndTaxonomy);
     Objects.requireNonNull(responseBuilder);
     Objects.requireNonNull(queryFields);
@@ -172,6 +170,8 @@ public class SearchContext implements FieldFetchContext {
     Objects.requireNonNull(fetchTasks);
     Objects.requireNonNull(rescorers);
     Objects.requireNonNull(sharedDocContext);
+    Objects.requireNonNull(parallelFetchConfig);
+    Objects.requireNonNull(searchFunction);
 
     if (timestampSec < 0) {
       throw new IllegalStateException("Invalid timestamp value: " + timestampSec);
@@ -193,8 +193,6 @@ public class SearchContext implements FieldFetchContext {
   /** Builder class for search context. */
   public static class Builder {
 
-    private IndexState indexState;
-    private ShardState shardState;
     private SearcherTaxonomyManager.SearcherAndTaxonomy searcherAndTaxonomy;
     private SearchResponse.Builder responseBuilder;
 
@@ -209,20 +207,10 @@ public class SearchContext implements FieldFetchContext {
     private List<RescoreTask> rescorers;
     private SharedDocContext sharedDocContext;
     private HighlightFetchTask highlightFetchTask;
+    private ParallelFetchConfig parallelFetchConfig;
+    private SearchFunction searchFunction;
 
     private Builder() {}
-
-    /** Set query index state. */
-    public Builder setIndexState(IndexState indexState) {
-      this.indexState = indexState;
-      return this;
-    }
-
-    /** Set query shard state. */
-    public Builder setShardState(ShardState shardState) {
-      this.shardState = shardState;
-      return this;
-    }
 
     /** Set searcher instance for query. */
     public Builder setSearcherAndTaxonomy(SearcherAndTaxonomy s) {
@@ -302,6 +290,18 @@ public class SearchContext implements FieldFetchContext {
     /** Set fetch task to generate highlights */
     public Builder setHighlightFetchTask(HighlightFetchTask highlightFetchTask) {
       this.highlightFetchTask = highlightFetchTask;
+      return this;
+    }
+
+    /** Set config for parallel field fetch * */
+    public Builder setParallelFetchConfig(ParallelFetchConfig parallelFetchConfig) {
+      this.parallelFetchConfig = parallelFetchConfig;
+      return this;
+    }
+
+    /** Set function to execute lucene search * */
+    public Builder setSearchFunction(SearchFunction searchFunction) {
+      this.searchFunction = searchFunction;
       return this;
     }
 

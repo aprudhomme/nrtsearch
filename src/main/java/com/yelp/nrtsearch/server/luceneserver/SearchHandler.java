@@ -19,18 +19,16 @@ import com.google.common.collect.Lists;
 import com.google.protobuf.Struct;
 import com.google.protobuf.util.JsonFormat;
 import com.yelp.nrtsearch.server.grpc.DeadlineUtils;
-import com.yelp.nrtsearch.server.grpc.FacetResult;
 import com.yelp.nrtsearch.server.grpc.ProfileResult;
 import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
+import com.yelp.nrtsearch.server.grpc.SearchResponse.Diagnostics;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.CompositeFieldValue;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.FieldValue;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.SearchState;
 import com.yelp.nrtsearch.server.grpc.TotalHits;
 import com.yelp.nrtsearch.server.luceneserver.doc.LoadedDocValues;
-import com.yelp.nrtsearch.server.luceneserver.facet.DrillSidewaysImpl;
-import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.field.BooleanFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.DateTimeFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
@@ -41,7 +39,6 @@ import com.yelp.nrtsearch.server.luceneserver.field.VirtualFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.rescore.RescoreTask;
 import com.yelp.nrtsearch.server.luceneserver.search.FieldFetchContext;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchContext;
-import com.yelp.nrtsearch.server.luceneserver.search.SearchCutoffWrapper.CollectionTimeoutException;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchRequestProcessor;
 import com.yelp.nrtsearch.server.luceneserver.search.SearcherResult;
 import java.io.IOException;
@@ -53,13 +50,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import org.apache.lucene.facet.DrillDownQuery;
-import org.apache.lucene.facet.DrillSideways;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -78,6 +74,75 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
   private static final Logger logger = LoggerFactory.getLogger(SearchHandler.class);
   private final ThreadPoolExecutor threadPoolExecutor;
   private final boolean warming;
+
+  /**
+   * Function to execute the lucene level search for a given {@link SearchContext}. Provides the
+   * lucene {@link TopDocs} and the results of any additional collectors.
+   */
+  @FunctionalInterface
+  public interface SearchFunction {
+    SearcherResult executeSearch(SearchContext searchContext) throws IOException;
+  }
+
+  /** Config class for fetch phase parallelism of a search request. */
+  public static class ParallelFetchConfig {
+    private final int threadPoolSize;
+    private final boolean parallelByField;
+    private final int minFieldsChunkSize;
+    private final int minDocsChunkSize;
+    private final ExecutorService executorService;
+
+    /**
+     * Constructor.
+     *
+     * @param threadPoolSize number of threads in fetch thread pool, or 0 to disable parallel fetch
+     * @param parallelByField if parallelism should be by chunks of fields, otherwise chunks of docs
+     * @param minFieldsChunkSize chunks size for field parallelism
+     * @param minDocsChunkSize chunk size for doc parallelism, also min hits required to enable
+     *     field parallelism
+     * @param executorService executor to run fetch sub-tasks
+     */
+    public ParallelFetchConfig(
+        int threadPoolSize,
+        boolean parallelByField,
+        int minFieldsChunkSize,
+        int minDocsChunkSize,
+        ExecutorService executorService) {
+      this.threadPoolSize = threadPoolSize;
+      this.parallelByField = parallelByField;
+      this.minFieldsChunkSize = minFieldsChunkSize;
+      this.minDocsChunkSize = minDocsChunkSize;
+      this.executorService = executorService;
+    }
+
+    /** Get number of threads in fetch thread pool, or 0 if disabled. */
+    public int getThreadPoolSize() {
+      return threadPoolSize;
+    }
+
+    /** Get if doing parallel fetch by field chunks, instead of doc chunks. */
+    public boolean isParallelByField() {
+      return parallelByField;
+    }
+
+    /** Get field chunk size, when doing parallel fetch by field. */
+    public int getMinFieldsChunkSize() {
+      return minFieldsChunkSize;
+    }
+
+    /**
+     * Get doc chunk size when doing parallel fetch by docs, also min hit needed before doing
+     * parallel fetch by field.
+     */
+    public int getMinDocsChunkSize() {
+      return minDocsChunkSize;
+    }
+
+    /** Get executor to run fetch sub-tasks. */
+    public ExecutorService getExecutorService() {
+      return executorService;
+    }
+  }
 
   public SearchHandler(ThreadPoolExecutor threadPoolExecutor) {
     this(threadPoolExecutor, false);
@@ -105,11 +170,10 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       indexState.verifyStarted();
     }
 
-    var diagnostics = SearchResponse.Diagnostics.newBuilder();
-
     SearcherTaxonomyManager.SearcherAndTaxonomy s = null;
     SearchContext searchContext;
     try {
+      var diagnostics = SearchResponse.Diagnostics.newBuilder();
       s =
           getSearcherAndTaxonomy(
               searchRequest, indexState, shardState, diagnostics, threadPoolExecutor);
@@ -121,126 +185,15 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
 
       searchContext =
           SearchRequestProcessor.buildContextForRequest(
-              searchRequest, indexState, shardState, s, profileResultBuilder);
+              searchRequest,
+              indexState,
+              shardState,
+              s,
+              profileResultBuilder,
+              diagnostics,
+              threadPoolExecutor);
 
-      long searchStartTime = System.nanoTime();
-
-      SearcherResult searcherResult = null;
-      TopDocs hits;
-      if (!searchRequest.getFacetsList().isEmpty()) {
-        if (!(searchContext.getQuery() instanceof DrillDownQuery)) {
-          throw new IllegalArgumentException("Can only use DrillSideways on DrillDownQuery");
-        }
-        DrillDownQuery ddq = (DrillDownQuery) searchContext.getQuery();
-
-        List<FacetResult> grpcFacetResults = new ArrayList<>();
-        DrillSideways drillS =
-            new DrillSidewaysImpl(
-                s.searcher,
-                indexState.getFacetsConfig(),
-                s.taxonomyReader,
-                searchRequest.getFacetsList(),
-                s,
-                indexState,
-                shardState,
-                searchContext.getQueryFields(),
-                grpcFacetResults,
-                threadPoolExecutor,
-                diagnostics);
-        DrillSideways.ConcurrentDrillSidewaysResult<SearcherResult> concurrentDrillSidewaysResult;
-        try {
-          concurrentDrillSidewaysResult =
-              drillS.search(ddq, searchContext.getCollector().getWrappedManager());
-        } catch (RuntimeException e) {
-          // Searching with DrillSideways wraps exceptions in a few layers.
-          // Try to find if this was caused by a timeout, if so, re-wrap
-          // so that the top level exception is the same as when not using facets.
-          CollectionTimeoutException timeoutException = findTimeoutException(e);
-          if (timeoutException != null) {
-            throw new CollectionTimeoutException(timeoutException.getMessage(), e);
-          }
-          throw e;
-        }
-        searcherResult = concurrentDrillSidewaysResult.collectorResult;
-        hits = searcherResult.getTopDocs();
-        searchContext.getResponseBuilder().addAllFacetResult(grpcFacetResults);
-        searchContext
-            .getResponseBuilder()
-            .addAllFacetResult(
-                FacetTopDocs.facetTopDocsSample(
-                    hits, searchRequest.getFacetsList(), indexState, s.searcher, diagnostics));
-      } else {
-        searcherResult =
-            s.searcher.search(
-                searchContext.getQuery(), searchContext.getCollector().getWrappedManager());
-        hits = searcherResult.getTopDocs();
-      }
-
-      // add results from any extra collectors
-      searchContext
-          .getResponseBuilder()
-          .putAllCollectorResults(searcherResult.getCollectorResults());
-
-      searchContext.getResponseBuilder().setHitTimeout(searchContext.getCollector().hadTimeout());
-      searchContext
-          .getResponseBuilder()
-          .setTerminatedEarly(searchContext.getCollector().terminatedEarly());
-
-      diagnostics.setFirstPassSearchTimeMs(((System.nanoTime() - searchStartTime) / 1000000.0));
-
-      DeadlineUtils.checkDeadline("SearchHandler: post recall", "SEARCH");
-
-      // add detailed timing metrics for query execution
-      if (profileResultBuilder != null) {
-        searchContext.getCollector().maybeAddProfiling(profileResultBuilder);
-      }
-
-      long rescoreStartTime = System.nanoTime();
-
-      if (!searchContext.getRescorers().isEmpty()) {
-        for (RescoreTask rescorer : searchContext.getRescorers()) {
-          long startNS = System.nanoTime();
-          hits = rescorer.rescore(hits, searchContext);
-          long endNS = System.nanoTime();
-          diagnostics.putRescorersTimeMs(rescorer.getName(), (endNS - startNS) / 1000000.0);
-          DeadlineUtils.checkDeadline("SearchHandler: post " + rescorer.getName(), "SEARCH");
-        }
-        diagnostics.setRescoreTimeMs(((System.nanoTime() - rescoreStartTime) / 1000000.0));
-      }
-
-      long t0 = System.nanoTime();
-
-      hits = getHitsFromOffset(hits, searchContext.getStartHit(), searchContext.getTopHits());
-
-      // create Hit.Builder for each hit, and populate with lucene doc id and ranking info
-      setResponseHits(searchContext, hits);
-
-      // fill Hit.Builder with requested fields
-      fetchFields(searchContext);
-
-      SearchState.Builder searchState = SearchState.newBuilder();
-      searchContext.getResponseBuilder().setSearchState(searchState);
-      searchState.setTimestamp(searchContext.getTimestampSec());
-
-      // Record searcher version that handled this request:
-      searchState.setSearcherVersion(((DirectoryReader) s.searcher.getIndexReader()).getVersion());
-
-      // Fill in lastDoc for searchAfter:
-      if (hits.scoreDocs.length != 0) {
-        ScoreDoc lastHit = hits.scoreDocs[hits.scoreDocs.length - 1];
-        searchState.setLastDocId(lastHit.doc);
-        searchContext.getCollector().fillLastHit(searchState, lastHit);
-      }
-
-      diagnostics.setGetFieldsTimeMs(((System.nanoTime() - t0) / 1000000.0));
-      if (searchContext.getHighlightFetchTask() != null) {
-        diagnostics.setHighlightTimeMs(searchContext.getHighlightFetchTask().getTimeTakenMs());
-      }
-      searchContext.getResponseBuilder().setDiagnostics(diagnostics);
-
-      if (profileResultBuilder != null) {
-        searchContext.getResponseBuilder().setProfileResult(profileResultBuilder);
-      }
+      search(searchContext, diagnostics, profileResultBuilder);
     } catch (IOException | InterruptedException | ExecutionException e) {
       logger.warn(e.getMessage(), e);
       throw new SearchHandlerException(e);
@@ -278,6 +231,90 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
   }
 
   /**
+   * Perform full search operation (query and fetch) based on the provided {@link SearchContext},
+   * with the results being added to the {@link SearchResponse.Builder} in the context. The final
+   * diagnostics/profiling are also added to this builder.
+   *
+   * @param searchContext search context
+   * @param diagnostics builder for diagnostics info
+   * @param profileResultBuilder builder for profiling info, or null for none
+   * @throws IOException
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
+  public static void search(
+      SearchContext searchContext,
+      Diagnostics.Builder diagnostics,
+      ProfileResult.Builder profileResultBuilder)
+      throws IOException, ExecutionException, InterruptedException {
+    long searchStartTime = System.nanoTime();
+
+    SearcherResult searcherResult = searchContext.getSearchFunction().executeSearch(searchContext);
+    TopDocs hits = searcherResult.getTopDocs();
+
+    // add results from any extra collectors
+    searchContext.getResponseBuilder().putAllCollectorResults(searcherResult.getCollectorResults());
+
+    searchContext.getResponseBuilder().setHitTimeout(searchContext.getCollector().hadTimeout());
+    searchContext
+        .getResponseBuilder()
+        .setTerminatedEarly(searchContext.getCollector().terminatedEarly());
+
+    diagnostics.setFirstPassSearchTimeMs(((System.nanoTime() - searchStartTime) / 1000000.0));
+
+    DeadlineUtils.checkDeadline("SearchHandler: post recall", "SEARCH");
+
+    // add detailed timing metrics for query execution
+    if (profileResultBuilder != null) {
+      searchContext.getCollector().maybeAddProfiling(profileResultBuilder);
+    }
+
+    long rescoreStartTime = System.nanoTime();
+
+    if (!searchContext.getRescorers().isEmpty()) {
+      for (RescoreTask rescorer : searchContext.getRescorers()) {
+        long startNS = System.nanoTime();
+        hits = rescorer.rescore(hits, searchContext);
+        long endNS = System.nanoTime();
+        diagnostics.putRescorersTimeMs(rescorer.getName(), (endNS - startNS) / 1000000.0);
+        DeadlineUtils.checkDeadline("SearchHandler: post " + rescorer.getName(), "SEARCH");
+      }
+      diagnostics.setRescoreTimeMs(((System.nanoTime() - rescoreStartTime) / 1000000.0));
+    }
+
+    long t0 = System.nanoTime();
+
+    hits = getHitsFromOffset(hits, searchContext.getStartHit(), searchContext.getTopHits());
+
+    // create Hit.Builder for each hit, and populate with lucene doc id and ranking info
+    setResponseHits(searchContext, hits);
+
+    // fill Hit.Builder with requested fields
+    fetchFields(searchContext, diagnostics);
+
+    SearchState.Builder searchState = SearchState.newBuilder();
+    searchContext.getResponseBuilder().setSearchState(searchState);
+    searchState.setTimestamp(searchContext.getTimestampSec());
+
+    // Record searcher version that handled this request:
+    searchState.setSearcherVersion(
+        ((DirectoryReader) searchContext.getSearcherAndTaxonomy().searcher.getIndexReader())
+            .getVersion());
+
+    // Fill in lastDoc for searchAfter:
+    if (hits.scoreDocs.length != 0) {
+      ScoreDoc lastHit = hits.scoreDocs[hits.scoreDocs.length - 1];
+      searchState.setLastDocId(lastHit.doc);
+      searchContext.getCollector().fillLastHit(searchState, lastHit);
+    }
+
+    searchContext.getResponseBuilder().setDiagnostics(diagnostics);
+    if (profileResultBuilder != null) {
+      searchContext.getResponseBuilder().setProfileResult(profileResultBuilder);
+    }
+  }
+
+  /**
    * Fetch/compute field values for the top hits. This operation may be done in parallel, based on
    * the setting for the fetch thread pool. In addition to filling hit fields, any query {@link
    * com.yelp.nrtsearch.server.luceneserver.search.FetchTasks.FetchTask}s are executed.
@@ -287,9 +324,11 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    * @throws ExecutionException on error when performing parallel fetch
    * @throws InterruptedException if parallel fetch is interrupted
    */
-  private void fetchFields(SearchContext searchContext)
+  private static void fetchFields(SearchContext searchContext, Diagnostics.Builder diagnostics)
       throws IOException, ExecutionException, InterruptedException {
+    long fetchStartNs = System.nanoTime();
     if (searchContext.getResponseBuilder().getHitsBuilderList().isEmpty()) {
+      diagnostics.setGetFieldsTimeMs(((System.nanoTime() - fetchStartNs) / 1000000.0));
       return;
     }
 
@@ -298,14 +337,11 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
         new ArrayList<>(searchContext.getResponseBuilder().getHitsBuilderList());
     hitBuilders.sort(Comparator.comparing(Hit.Builder::getLuceneDocId));
 
-    IndexState indexState = searchContext.getIndexState();
-    int fetch_thread_pool_size = indexState.getThreadPoolConfiguration().getMaxFetchThreads();
-    int min_parallel_fetch_num_fields =
-        indexState.getThreadPoolConfiguration().getMinParallelFetchNumFields();
-    int min_parallel_fetch_num_hits =
-        indexState.getThreadPoolConfiguration().getMinParallelFetchNumHits();
-    boolean parallelFetchByField =
-        indexState.getThreadPoolConfiguration().getParallelFetchByField();
+    ParallelFetchConfig parallelFetchConfig = searchContext.getParallelFetchConfig();
+    int fetch_thread_pool_size = parallelFetchConfig.getThreadPoolSize();
+    int min_parallel_fetch_num_fields = parallelFetchConfig.getMinFieldsChunkSize();
+    int min_parallel_fetch_num_hits = parallelFetchConfig.getMinDocsChunkSize();
+    boolean parallelFetchByField = parallelFetchConfig.isParallelByField();
 
     if (parallelFetchByField
         && fetch_thread_pool_size > 1
@@ -339,11 +375,10 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       // Stored fields are not widely used for NRTSearch (not recommended for memory usage)
       for (List<String> fieldsChunk : fieldsChunks) {
         futures.add(
-            indexState
-                .getFetchThreadPoolExecutor()
+            parallelFetchConfig
+                .getExecutorService()
                 .submit(
                     new FillFieldsTask(
-                        indexState,
                         searchContext.getSearcherAndTaxonomy().searcher,
                         hitIdToLeaves,
                         hitBuilders,
@@ -386,8 +421,8 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       List<Future<?>> futures = new ArrayList<>();
       for (List<Hit.Builder> docChunk : docChunks) {
         futures.add(
-            indexState
-                .getFetchThreadPoolExecutor()
+            parallelFetchConfig
+                .getExecutorService()
                 .submit(new FillDocsTask(searchContext, docChunk)));
       }
       for (Future<?> future : futures) {
@@ -404,6 +439,11 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
     searchContext
         .getFetchTasks()
         .processAllHits(searchContext, searchContext.getResponseBuilder().getHitsBuilderList());
+
+    diagnostics.setGetFieldsTimeMs(((System.nanoTime() - fetchStartNs) / 1000000.0));
+    if (searchContext.getHighlightFetchTask() != null) {
+      diagnostics.setHighlightTimeMs(searchContext.getHighlightFetchTask().getTimeTakenMs());
+    }
   }
 
   /**
@@ -676,7 +716,6 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
 
   public static class FillFieldsTask implements Callable<List<Map<String, CompositeFieldValue>>> {
 
-    private IndexState state;
     private IndexSearcher s;
     private List<LeafReaderContext> hitIdToleaves;
     private List<Hit.Builder> hitBuilders;
@@ -684,13 +723,11 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
     private SearchContext searchContext;
 
     public FillFieldsTask(
-        IndexState indexState,
         IndexSearcher indexSearcher,
         List<LeafReaderContext> hitIdToleaves,
         List<Hit.Builder> hitBuilders,
         List<String> fields,
         SearchContext searchContext) {
-      this.state = indexState;
       this.s = indexSearcher;
       this.fields = fields;
       this.searchContext = searchContext;
@@ -1034,20 +1071,5 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
     public SearchHandlerException(String message, Throwable err) {
       super(message, err);
     }
-  }
-
-  /**
-   * Find an instance of {@link CollectionTimeoutException} in the cause path of an exception.
-   *
-   * @return found exception instance or null
-   */
-  private static CollectionTimeoutException findTimeoutException(Throwable e) {
-    if (e instanceof CollectionTimeoutException) {
-      return (CollectionTimeoutException) e;
-    }
-    if (e.getCause() != null) {
-      return findTimeoutException(e.getCause());
-    }
-    return null;
   }
 }

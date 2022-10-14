@@ -16,7 +16,7 @@
 package com.yelp.nrtsearch.server.luceneserver.field;
 
 import com.yelp.nrtsearch.server.luceneserver.field.properties.Bindable;
-import java.util.Map;
+import java.util.function.Function;
 import org.apache.lucene.expressions.Bindings;
 import org.apache.lucene.expressions.js.VariableContext;
 import org.apache.lucene.expressions.js.VariableContext.Type;
@@ -25,11 +25,16 @@ import org.apache.lucene.search.DoubleValuesSource;
 /** Implements {@link Bindings} on top of the registered fields. */
 public final class FieldDefBindings extends Bindings {
 
-  private final Map<String, FieldDef> fields;
+  private final Function<String, FieldDef> fieldLookupFunc;
 
-  /** Sole constructor. */
-  public FieldDefBindings(Map<String, FieldDef> fields) {
-    this.fields = fields;
+  /**
+   * Sole constructor.
+   *
+   * @param fieldLookupFunc function to look up a {@link FieldDef} by name, or throw an {@link
+   *     IllegalArgumentException}
+   */
+  public FieldDefBindings(Function<String, FieldDef> fieldLookupFunc) {
+    this.fieldLookupFunc = fieldLookupFunc;
   }
 
   /**
@@ -55,7 +60,7 @@ public final class FieldDefBindings extends Bindings {
     if (name.equals("_score")) {
       return DoubleValuesSource.SCORES;
     }
-    FieldDef fd = fields.get(name);
+    FieldDef fd = getField(name);
     String property = Bindable.VALUE_PROPERTY;
     String fieldName = name;
     if (fd == null) {
@@ -72,7 +77,7 @@ public final class FieldDefBindings extends Bindings {
             "Invalid field binding format: " + name + ", expected: doc['field_name'].property");
       }
       fieldName = parsed[1].text;
-      fd = fields.get(fieldName);
+      fd = getField(fieldName);
       if (fd == null) {
         throw new IllegalArgumentException("Unknown field to bind: " + fieldName);
       }
@@ -83,5 +88,21 @@ public final class FieldDefBindings extends Bindings {
           "Field: " + fieldName + " does not support expression binding");
     }
     return ((Bindable) fd).getExpressionBinding(property);
+  }
+
+  /**
+   * Get function that looks up a {@link FieldDef} by name, or throws an {@link
+   * IllegalArgumentException}.
+   */
+  public Function<String, FieldDef> getFieldLookupFunc() {
+    return fieldLookupFunc;
+  }
+
+  private FieldDef getField(String fieldName) {
+    try {
+      return fieldLookupFunc.apply(fieldName);
+    } catch (Exception ignore) {
+    }
+    return null;
   }
 }

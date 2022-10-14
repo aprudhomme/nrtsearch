@@ -16,17 +16,25 @@
 package com.yelp.nrtsearch.server.luceneserver.search;
 
 import com.yelp.nrtsearch.server.grpc.CollectorResult;
+import com.yelp.nrtsearch.server.grpc.Facet;
+import com.yelp.nrtsearch.server.grpc.FacetResult;
 import com.yelp.nrtsearch.server.grpc.Highlight;
 import com.yelp.nrtsearch.server.grpc.PluginRescorer;
 import com.yelp.nrtsearch.server.grpc.ProfileResult;
 import com.yelp.nrtsearch.server.grpc.QueryRescorer;
+import com.yelp.nrtsearch.server.grpc.Rescorer;
 import com.yelp.nrtsearch.server.grpc.SearchRequest;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
+import com.yelp.nrtsearch.server.grpc.SearchResponse.Diagnostics;
 import com.yelp.nrtsearch.server.grpc.VirtualField;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
 import com.yelp.nrtsearch.server.luceneserver.QueryNodeMapper;
+import com.yelp.nrtsearch.server.luceneserver.SearchHandler.ParallelFetchConfig;
+import com.yelp.nrtsearch.server.luceneserver.SearchHandler.SearchFunction;
 import com.yelp.nrtsearch.server.luceneserver.ShardState;
 import com.yelp.nrtsearch.server.luceneserver.doc.DefaultSharedDocContext;
+import com.yelp.nrtsearch.server.luceneserver.facet.DrillSidewaysImpl;
+import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.TextBaseFieldDef;
@@ -38,6 +46,7 @@ import com.yelp.nrtsearch.server.luceneserver.rescore.RescoreTask;
 import com.yelp.nrtsearch.server.luceneserver.rescore.RescorerCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScoreScript;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
+import com.yelp.nrtsearch.server.luceneserver.search.SearchCutoffWrapper.CollectionTimeoutException;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.AdditionalCollectorManager;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreator;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreatorContext;
@@ -54,9 +63,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.facet.DrillDownQuery;
+import org.apache.lucene.facet.DrillSideways;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.QueryParserBase;
@@ -64,6 +75,7 @@ import org.apache.lucene.queryparser.simple.SimpleQueryParser;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.util.QueryBuilder;
 
 /**
@@ -76,6 +88,14 @@ public class SearchRequestProcessor {
    * on computing hit counts
    */
   public static final int TOTAL_HITS_THRESHOLD = 1000;
+
+  // Execute search without facets
+  public static final SearchFunction DEFAULT_SEARCH_FUNCTION =
+      (context) ->
+          context
+              .getSearcherAndTaxonomy()
+              .searcher
+              .search(context.getQuery(), context.getCollector().getWrappedManager());
 
   private static final QueryNodeMapper QUERY_NODE_MAPPER = QueryNodeMapper.getInstance();
 
@@ -90,6 +110,8 @@ public class SearchRequestProcessor {
    * @param shardState shard state
    * @param searcherAndTaxonomy index searcher
    * @param profileResult container message for returned debug info
+   * @param diagnostics builder for response diagnostic data
+   * @param facetThreadPool thread pool for facet operations
    * @return context info needed to execute the search query
    * @throws IOException if query rewrite fails
    */
@@ -98,15 +120,15 @@ public class SearchRequestProcessor {
       IndexState indexState,
       ShardState shardState,
       SearcherTaxonomyManager.SearcherAndTaxonomy searcherAndTaxonomy,
-      ProfileResult.Builder profileResult)
+      ProfileResult.Builder profileResult,
+      Diagnostics.Builder diagnostics,
+      ExecutorService facetThreadPool)
       throws IOException {
 
     SearchContext.Builder contextBuilder = SearchContext.newBuilder();
     SearchResponse.Builder responseBuilder = SearchResponse.newBuilder();
 
     contextBuilder
-        .setIndexState(indexState)
-        .setShardState(shardState)
         .setSearcherAndTaxonomy(searcherAndTaxonomy)
         .setResponseBuilder(responseBuilder)
         .setTimestampSec(System.currentTimeMillis() / 1000)
@@ -137,6 +159,11 @@ public class SearchRequestProcessor {
       if (profileResult != null) {
         profileResult.setDrillDownQuery(query.toString());
       }
+      contextBuilder.setSearchFunction(
+          getFacetSearchFunction(
+              indexState, shardState, searchRequest, diagnostics, facetThreadPool));
+    } else {
+      contextBuilder.setSearchFunction(DEFAULT_SEARCH_FUNCTION);
     }
 
     contextBuilder.setFetchTasks(new FetchTasks(searchRequest.getFetchTasksList()));
@@ -144,9 +171,8 @@ public class SearchRequestProcessor {
     contextBuilder.setQuery(query);
 
     CollectorCreatorContext collectorCreatorContext =
-        new CollectorCreatorContext(
-            searchRequest, indexState, shardState, queryFields, searcherAndTaxonomy);
-    DocCollector docCollector = buildDocCollector(collectorCreatorContext);
+        createCollectorContext(searchRequest, indexState, queryFields, searcherAndTaxonomy);
+    DocCollector docCollector = buildDocCollector(searchRequest, collectorCreatorContext);
     contextBuilder.setCollector(docCollector);
 
     contextBuilder.setRescorers(
@@ -160,6 +186,8 @@ public class SearchRequestProcessor {
           new HighlightFetchTask(indexState, searcherAndTaxonomy, query, highlight);
       contextBuilder.setHighlightFetchTask(highlightFetchTask);
     }
+
+    contextBuilder.setParallelFetchConfig(getParallelFetchConfig(indexState));
 
     SearchContext searchContext = contextBuilder.build(true);
     // Give underlying collectors access to the search context
@@ -314,10 +342,12 @@ public class SearchRequestProcessor {
    * Build {@link DocCollector} to provide the {@link org.apache.lucene.search.CollectorManager} for
    * collecting hits for this query.
    *
+   * @param searchRequest search request
+   * @param collectorCreatorContext context info to create document collectors
    * @return collector
    */
-  private static DocCollector buildDocCollector(CollectorCreatorContext collectorCreatorContext) {
-    SearchRequest searchRequest = collectorCreatorContext.getRequest();
+  private static DocCollector buildDocCollector(
+      SearchRequest searchRequest, CollectorCreatorContext collectorCreatorContext) {
     List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
         additionalCollectors =
             searchRequest.getCollectorsMap().entrySet().stream()
@@ -335,10 +365,19 @@ public class SearchRequestProcessor {
       if (hasLargeNumHits(searchRequest)) {
         docCollector = new LargeNumHitsCollector(collectorCreatorContext, additionalCollectors);
       } else {
-        docCollector = new RelevanceCollector(collectorCreatorContext, additionalCollectors);
+        docCollector =
+            new RelevanceCollector(
+                collectorCreatorContext,
+                additionalCollectors,
+                searchRequest.getTotalHitsThreshold());
       }
     } else {
-      docCollector = new SortFieldCollector(collectorCreatorContext, additionalCollectors);
+      docCollector =
+          new SortFieldCollector(
+              collectorCreatorContext,
+              additionalCollectors,
+              searchRequest.getTotalHitsThreshold(),
+              searchRequest.getQuerySort());
     }
     // If we don't need hits, just count recalled docs
     if (docCollector.getNumHitsToCollect() == 0) {
@@ -352,6 +391,105 @@ public class SearchRequestProcessor {
     return searchRequest.hasQuery()
         && searchRequest.getQuery().getQueryNodeCase()
             == com.yelp.nrtsearch.server.grpc.Query.QueryNodeCase.QUERYNODE_NOT_SET;
+  }
+
+  /**
+   * Create {@link CollectorCreatorContext} for query.
+   *
+   * @param searchRequest search request
+   * @param indexState index state
+   * @param queryFields all fields available to query
+   * @param searcherAndTaxonomy index searcher
+   * @return collector creator context
+   */
+  private static CollectorCreatorContext createCollectorContext(
+      SearchRequest searchRequest,
+      IndexState indexState,
+      Map<String, FieldDef> queryFields,
+      SearcherTaxonomyManager.SearcherAndTaxonomy searcherAndTaxonomy) {
+    int hitsToCollect = getHitsToCollect(searchRequest);
+    double searchTimeoutSec = getSearchTimeoutSec(searchRequest, indexState);
+    int searchTimeoutCheckEvery = getSearchTimeoutCheckEvery(searchRequest, indexState);
+    int searchTerminateAfter = getSearchTerminateAfter(searchRequest, indexState);
+
+    return new CollectorCreatorContext(
+        hitsToCollect,
+        searchTimeoutSec,
+        searchTimeoutCheckEvery,
+        searchTerminateAfter,
+        searchRequest.getDisallowPartialResults(),
+        searchRequest.getProfile(),
+        indexState.docLookup,
+        queryFields,
+        searcherAndTaxonomy);
+  }
+
+  /**
+   * Get number of hits that need to be collected. Based on requested top hit, sample facets, and
+   * rescore windows.
+   *
+   * @param searchRequest search request
+   * @return number of top hit to collect
+   */
+  private static int getHitsToCollect(SearchRequest searchRequest) {
+    int collectHits = searchRequest.getTopHits();
+    for (Facet facet : searchRequest.getFacetsList()) {
+      int facetSample = facet.getSampleTopDocs();
+      if (facetSample > 0 && facetSample > collectHits) {
+        collectHits = facetSample;
+      }
+    }
+    for (Rescorer rescorer : searchRequest.getRescorersList()) {
+      int windowSize = rescorer.getWindowSize();
+      if (windowSize > 0 && windowSize > collectHits) {
+        collectHits = windowSize;
+      }
+    }
+    return collectHits;
+  }
+
+  /**
+   * Get timeout for search recall phase in seconds, or 0 for none. Uses value from search request
+   * if specified, otherwise uses default value from index state.
+   *
+   * @param searchRequest search request
+   * @param indexState index state
+   * @return search timeout in seconds
+   */
+  private static double getSearchTimeoutSec(SearchRequest searchRequest, IndexState indexState) {
+    return searchRequest.getTimeoutSec() > 0.0
+        ? searchRequest.getTimeoutSec()
+        : indexState.getDefaultSearchTimeoutSec();
+  }
+
+  /**
+   * Get how many docs to collect in a segment before checking the search timeout, or 0 for segment
+   * boundary only. Uses value from search request if specified, otherwise uses default value from
+   * index state.
+   *
+   * @param searchRequest search request
+   * @param indexState index state
+   * @return timeout check every value
+   */
+  private static int getSearchTimeoutCheckEvery(
+      SearchRequest searchRequest, IndexState indexState) {
+    return searchRequest.getTimeoutCheckEvery() > 0
+        ? searchRequest.getTimeoutCheckEvery()
+        : indexState.getDefaultSearchTimeoutCheckEvery();
+  }
+
+  /**
+   * Get number of documents to collect before terminating collection early, or 0 for unlimited.
+   * Uses value from search request if specified, otherwise uses default value from index state.
+   *
+   * @param searchRequest search request
+   * @param indexState index state
+   * @return terminate after value
+   */
+  private static int getSearchTerminateAfter(SearchRequest searchRequest, IndexState indexState) {
+    return searchRequest.getTerminateAfter() > 0
+        ? searchRequest.getTerminateAfter()
+        : indexState.getDefaultTerminateAfter();
   }
 
   /** Parses rescorers defined in this search request. */
@@ -424,5 +562,101 @@ public class SearchRequestProcessor {
                 fieldName));
       }
     }
+  }
+
+  /**
+   * Get function to perform lucene level search with facets.
+   *
+   * @param indexState index state
+   * @param shardState shard state
+   * @param searchRequest search request
+   * @param diagnostics builder for response diagnostic data
+   * @param threadPoolExecutor facet execution thread pool
+   * @return search function with facets
+   */
+  private static SearchFunction getFacetSearchFunction(
+      final IndexState indexState,
+      final ShardState shardState,
+      final SearchRequest searchRequest,
+      final Diagnostics.Builder diagnostics,
+      final ExecutorService threadPoolExecutor) {
+    return (searchContext) -> {
+      if (!(searchContext.getQuery() instanceof DrillDownQuery)) {
+        throw new IllegalArgumentException("Can only use DrillSideways on DrillDownQuery");
+      }
+      DrillDownQuery ddq = (DrillDownQuery) searchContext.getQuery();
+
+      List<FacetResult> grpcFacetResults = new ArrayList<>();
+      DrillSideways drillS =
+          new DrillSidewaysImpl(
+              searchContext.getSearcherAndTaxonomy().searcher,
+              indexState.getFacetsConfig(),
+              searchContext.getSearcherAndTaxonomy().taxonomyReader,
+              searchRequest.getFacetsList(),
+              searchContext.getSearcherAndTaxonomy(),
+              indexState,
+              shardState,
+              searchContext.getQueryFields(),
+              grpcFacetResults,
+              threadPoolExecutor,
+              diagnostics);
+      DrillSideways.ConcurrentDrillSidewaysResult<SearcherResult> concurrentDrillSidewaysResult;
+      try {
+        concurrentDrillSidewaysResult =
+            drillS.search(ddq, searchContext.getCollector().getWrappedManager());
+      } catch (RuntimeException e) {
+        // Searching with DrillSideways wraps exceptions in a few layers.
+        // Try to find if this was caused by a timeout, if so, re-wrap
+        // so that the top level exception is the same as when not using facets.
+        CollectionTimeoutException timeoutException = findTimeoutException(e);
+        if (timeoutException != null) {
+          throw new CollectionTimeoutException(timeoutException.getMessage(), e);
+        }
+        throw e;
+      }
+      SearcherResult searcherResult = concurrentDrillSidewaysResult.collectorResult;
+      TopDocs hits = searcherResult.getTopDocs();
+      searchContext.getResponseBuilder().addAllFacetResult(grpcFacetResults);
+      searchContext
+          .getResponseBuilder()
+          .addAllFacetResult(
+              FacetTopDocs.facetTopDocsSample(
+                  hits,
+                  searchRequest.getFacetsList(),
+                  indexState,
+                  searchContext.getSearcherAndTaxonomy().searcher,
+                  diagnostics));
+      return searcherResult;
+    };
+  }
+
+  /**
+   * Find an instance of {@link CollectionTimeoutException} in the cause path of an exception.
+   *
+   * @return found exception instance or null
+   */
+  private static CollectionTimeoutException findTimeoutException(Throwable e) {
+    if (e instanceof CollectionTimeoutException) {
+      return (CollectionTimeoutException) e;
+    }
+    if (e.getCause() != null) {
+      return findTimeoutException(e.getCause());
+    }
+    return null;
+  }
+
+  /**
+   * Get parallel fetch config from index state.
+   *
+   * @param indexState index state
+   * @return parallel fetch config
+   */
+  private static ParallelFetchConfig getParallelFetchConfig(IndexState indexState) {
+    return new ParallelFetchConfig(
+        indexState.getThreadPoolConfiguration().getMaxFetchThreads(),
+        indexState.getThreadPoolConfiguration().getParallelFetchByField(),
+        indexState.getThreadPoolConfiguration().getMinParallelFetchNumFields(),
+        indexState.getThreadPoolConfiguration().getMinParallelFetchNumHits(),
+        indexState.getFetchThreadPoolExecutor());
   }
 }

@@ -15,7 +15,8 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.doc;
 
-import com.yelp.nrtsearch.server.luceneserver.IndexState;
+import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
+import java.util.function.Function;
 import org.apache.lucene.index.LeafReaderContext;
 
 /**
@@ -23,10 +24,16 @@ import org.apache.lucene.index.LeafReaderContext;
  * SegmentDocLookup} bound to single lucene segment.
  */
 public class DocLookup {
-  private final IndexState indexState;
+  private final Function<String, FieldDef> fieldLookupFunc;
 
-  public DocLookup(IndexState indexState) {
-    this.indexState = indexState;
+  /**
+   * Constructor.
+   *
+   * @param fieldLookupFunc function to look up a {@link FieldDef} by name, or throw an {@link
+   *     IllegalArgumentException}
+   */
+  public DocLookup(Function<String, FieldDef> fieldLookupFunc) {
+    this.fieldLookupFunc = fieldLookupFunc;
   }
 
   /**
@@ -36,15 +43,14 @@ public class DocLookup {
    * @return lookup accessor for given segment context
    */
   public SegmentDocLookup getSegmentLookup(LeafReaderContext context) {
-    return new SegmentDocLookup(indexState, context);
+    return new SegmentDocLookup(fieldLookupFunc, context);
   }
 
   /**
-   * Get the state information associated with this index.
-   *
-   * @return index state
+   * Get function that looks up a {@link FieldDef} by name, or throws an {@link
+   * IllegalArgumentException}.
    */
-  public IndexState getIndexState() {
-    return indexState;
+  public Function<String, FieldDef> getFieldLookupFunc() {
+    return fieldLookupFunc;
   }
 }

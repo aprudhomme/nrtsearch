@@ -39,7 +39,6 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import org.apache.lucene.facet.DrillDownQuery;
 import org.apache.lucene.facet.DrillSideways;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
@@ -70,6 +69,11 @@ public class TimeoutTest extends ServerTestCase {
           new NamedThreadFactory("LuceneSearchExecutor"));
 
   @ClassRule public static final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
+
+  @FunctionalInterface
+  private interface GetTopDocsFunc {
+    TopDocs getTopDocs(SearchContext searchContext, IndexState indexState);
+  }
 
   @Override
   public List<String> getIndices() {
@@ -228,9 +232,10 @@ public class TimeoutTest extends ServerTestCase {
     TopDocs hits =
         queryWithFunction(
             request,
-            context -> {
+            (context, indexState) -> {
               try {
-                TopDocs topDocs = getTopDocs(context, context.getCollector().getWrappedManager());
+                TopDocs topDocs =
+                    getTopDocs(context, indexState, context.getCollector().getWrappedManager());
                 assertFalse(context.getCollector().hadTimeout());
                 return topDocs;
               } catch (IOException e) {
@@ -305,12 +310,13 @@ public class TimeoutTest extends ServerTestCase {
     TopDocs hits =
         queryWithFunction(
             request,
-            context -> {
+            (context, indexState) -> {
               boolean[] hasTimeout = new boolean[1];
               try {
                 TopDocs topDocs =
                     getTopDocs(
                         context,
+                        indexState,
                         new TimeoutWrapper(
                             new SearchCollectorManager(
                                 context.getCollector(), Collections.emptyList()),
@@ -420,12 +426,13 @@ public class TimeoutTest extends ServerTestCase {
   private void verifyTimeoutException(SearchRequest request) throws Exception {
     queryWithFunction(
         request,
-        context -> {
+        (context, indexState) -> {
           boolean[] hasTimeout = new boolean[1];
           try {
             TopDocs topDocs =
                 getTopDocs(
                     context,
+                    indexState,
                     new TimeoutWrapper(
                         new SearchCollectorManager(context.getCollector(), Collections.emptyList()),
                         request.getTimeoutSec(),
@@ -440,8 +447,7 @@ public class TimeoutTest extends ServerTestCase {
         });
   }
 
-  private TopDocs queryWithFunction(SearchRequest request, Function<SearchContext, TopDocs> func)
-      throws Exception {
+  private TopDocs queryWithFunction(SearchRequest request, GetTopDocsFunc func) throws Exception {
     SearcherTaxonomyManager.SearcherAndTaxonomy s = null;
     IndexState indexState = getGlobalState().getIndex(TEST_INDEX);
     ShardState shardState = indexState.getShard(0);
@@ -449,8 +455,14 @@ public class TimeoutTest extends ServerTestCase {
       s = shardState.acquire();
       SearchContext context =
           SearchRequestProcessor.buildContextForRequest(
-              request, indexState, shardState, s, ProfileResult.newBuilder());
-      return func.apply(context);
+              request,
+              indexState,
+              shardState,
+              s,
+              ProfileResult.newBuilder(),
+              Diagnostics.newBuilder(),
+              searchThreadPoolExecutor);
+      return func.getTopDocs(context, indexState);
     } finally {
       if (s != null) {
         shardState.release(s);
@@ -476,7 +488,8 @@ public class TimeoutTest extends ServerTestCase {
         .build();
   }
 
-  private TopDocs getTopDocs(SearchContext context, CollectorManager<?, SearcherResult> manager)
+  private TopDocs getTopDocs(
+      SearchContext context, IndexState indexState, CollectorManager<?, SearcherResult> manager)
       throws IOException {
     TopDocs topDocs;
     if (context.getQuery() instanceof DrillDownQuery) {
@@ -484,12 +497,12 @@ public class TimeoutTest extends ServerTestCase {
       DrillSideways drillS =
           new DrillSidewaysImpl(
               context.getSearcherAndTaxonomy().searcher,
-              context.getIndexState().getFacetsConfig(),
+              indexState.getFacetsConfig(),
               context.getSearcherAndTaxonomy().taxonomyReader,
               Collections.singletonList(getTestFacet()),
               context.getSearcherAndTaxonomy(),
-              context.getIndexState(),
-              context.getIndexState().getShard(0),
+              indexState,
+              indexState.getShard(0),
               context.getQueryFields(),
               grpcFacetResults,
               searchThreadPoolExecutor,

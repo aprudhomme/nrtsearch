@@ -67,7 +67,7 @@ public class ScriptTermsCollectorManager extends TermsCollectorManager {
       scriptFactory =
           factory.newFactory(
               ScriptParamsUtils.decodeParams(grpcTermsCollector.getScript().getParamsMap()),
-              context.getIndexState().docLookup);
+              context.getDocLookup());
     } else {
       throw new IllegalArgumentException(
           "ScriptTermsCollectorManager requires a script definition");

@@ -27,6 +27,7 @@ import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.CompositeFieldValue;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.FieldValue;
 import com.yelp.nrtsearch.server.luceneserver.ServerTestCase;
+import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.search.FetchTaskProvider;
 import com.yelp.nrtsearch.server.luceneserver.search.FetchTasks;
 import com.yelp.nrtsearch.server.luceneserver.search.FetchTasks.FetchTask;
@@ -135,10 +136,11 @@ public class SharedDocContextTest extends ServerTestCase {
             searchContext.getSearcherAndTaxonomy().searcher.getIndexReader().leaves();
         int leafIndex = ReaderUtil.subIndex(hit.getLuceneDocId(), leaves);
         LeafReaderContext leaf = leaves.get(leafIndex);
-        SegmentDocLookup segmentDocLookup =
-            searchContext.getIndexState().docLookup.getSegmentLookup(leaf);
-        segmentDocLookup.setDocId(hit.getLuceneDocId() - leaf.docBase);
-        Integer score = (Integer) segmentDocLookup.get("int_score").get(0);
+        LoadedDocValues<?> loadedDocValues =
+            ((IndexableFieldDef) searchContext.getQueryFields().get("int_score"))
+                .getDocValues(leaf);
+        loadedDocValues.setDocId(hit.getLuceneDocId() - leaf.docBase);
+        Integer score = (Integer) loadedDocValues.get(0);
         searchContext
             .getSharedDocContext()
             .getContext(hit.getLuceneDocId())

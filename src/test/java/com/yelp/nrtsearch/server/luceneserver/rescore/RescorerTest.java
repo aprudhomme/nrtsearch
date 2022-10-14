@@ -141,8 +141,7 @@ public class RescorerTest extends ServerTestCase {
           @SuppressWarnings("unchecked")
           LoadedDocValues<Integer> docValues =
               ((LoadedDocValues<Integer>)
-                  ((IndexableFieldDef)
-                          context.getSearchContext().getIndexState().getField("int_score"))
+                  ((IndexableFieldDef) context.getSearchContext().getQueryFields().get("int_score"))
                       .getDocValues(leaf));
           docValues.setDocId(doc.doc - leaf.docBase);
           int score = docValues.get(0);

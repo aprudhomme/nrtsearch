@@ -174,7 +174,7 @@ public class CollectorTest extends ServerTestCase {
         this.context = context;
         // The maximum number of top matching reviews to return per business.
         this.size = ((Number) params.get("size")).intValue();
-        this.businessIdField = (IndexableFieldDef) context.getIndexState().getField("business_id");
+        this.businessIdField = (IndexableFieldDef) context.getQueryFields().get("business_id");
       }
 
       @Override
