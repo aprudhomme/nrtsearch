@@ -58,6 +58,8 @@ public class NRTReplicaNode extends ReplicaNode {
   private final HostPort hostPort;
   private static final Logger logger = LoggerFactory.getLogger(NRTReplicaNode.class);
 
+  private boolean primaryChanged = false;
+
   public NRTReplicaNode(
       String indexName,
       ReplicationServerClient primaryAddress,
@@ -220,7 +222,16 @@ public class NRTReplicaNode extends ReplicaNode {
 
   @Override
   protected void finishNRTCopy(CopyJob job, long startNS) throws IOException {
+    long currentPrimaryGen;
+    synchronized (this) {
+      currentPrimaryGen = lastPrimaryGen;
+    }
     super.finishNRTCopy(job, startNS);
+    synchronized (this) {
+      if (primaryChanged && !job.getFailed() && lastPrimaryGen == currentPrimaryGen) {
+        primaryChanged = false;
+      }
+    }
 
     // record metrics for this nrt point
     if (job.getFailed()) {
@@ -338,5 +349,34 @@ public class NRTReplicaNode extends ReplicaNode {
       }
     }
     logger.info("Finished syncing nrt point from current primary, current version: {}", curVersion);
+  }
+
+  @Override
+  protected synchronized void maybeNewPrimary(long newPrimaryGen) throws IOException {
+    logger.info(
+        "Primary changed, lastPrimaryGen: " + lastPrimaryGen + ", newPrimaryGen: " + newPrimaryGen);
+    if (newPrimaryGen < lastPrimaryGen) {
+      throw new IllegalArgumentException(
+          "New primary has lower gen, lastPrimaryGen: "
+              + lastPrimaryGen
+              + ", newPrimaryGen: "
+              + newPrimaryGen);
+    }
+    boolean newPrimary = newPrimaryGen != lastPrimaryGen;
+    super.maybeNewPrimary(newPrimaryGen);
+    primaryChanged = newPrimary;
+  }
+
+  public long getLastNrtPointVersion() throws IOException {
+    return super.getCurrentSearchingVersion();
+  }
+
+  @Override
+  public long getCurrentSearchingVersion() throws IOException {
+    if (primaryChanged) {
+      return -1;
+    } else {
+      return super.getCurrentSearchingVersion();
+    }
   }
 }

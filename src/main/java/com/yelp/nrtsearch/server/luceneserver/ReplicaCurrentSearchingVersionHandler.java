@@ -32,7 +32,7 @@ public class ReplicaCurrentSearchingVersionHandler implements Handler<IndexName,
               + "\" is not a replica or was not started yet");
     }
     try {
-      long currentSearchingVersion = shardState.nrtReplicaNode.getCurrentSearchingVersion();
+      long currentSearchingVersion = shardState.nrtReplicaNode.getLastNrtPointVersion();
       return SearcherVersion.newBuilder().setVersion(currentSearchingVersion).build();
     } catch (IOException e) {
       throw new RuntimeException(e);

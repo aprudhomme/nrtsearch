@@ -24,6 +24,7 @@ import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef.FacetValue
 import com.yelp.nrtsearch.server.luceneserver.field.properties.GlobalOrdinalable;
 import com.yelp.nrtsearch.server.luceneserver.index.IndexStateManager;
 import com.yelp.nrtsearch.server.luceneserver.index.NrtIndexWriter;
+import com.yelp.nrtsearch.server.luceneserver.search.MySearcherLifetimeManager;
 import com.yelp.nrtsearch.server.luceneserver.warming.WarmerConfig;
 import com.yelp.nrtsearch.server.monitoring.IndexMetrics;
 import com.yelp.nrtsearch.server.utils.FileUtil;
@@ -70,7 +71,6 @@ import org.apache.lucene.search.ControlledRealTimeReopenThread;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.search.SearcherFactory;
-import org.apache.lucene.search.SearcherLifetimeManager;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NRTCachingDirectory;
@@ -138,7 +138,7 @@ public class ShardState implements Closeable {
    * down/sideways/up, etc.) use the same searcher as the original search, as long as that searcher
    * hasn't expired.
    */
-  public volatile SearcherLifetimeManager slm = new SearcherLifetimeManager();
+  public volatile MySearcherLifetimeManager slm = new MySearcherLifetimeManager();
 
   /** Indexes changes, and provides the live searcher, possibly searching a specific generation. */
   private SearcherTaxonomyManager manager;
@@ -349,7 +349,7 @@ public class ShardState implements Closeable {
       closeables.add(taxoDir);
       writer = null;
     }
-    slm = new SearcherLifetimeManager();
+    slm = new MySearcherLifetimeManager();
 
     IOUtils.close(closeables);
   }
@@ -417,8 +417,8 @@ public class ShardState implements Closeable {
     public void run() {
       while (!done) {
         try {
-          final SearcherLifetimeManager.Pruner byAge =
-              new SearcherLifetimeManager.PruneByAge(
+          final MySearcherLifetimeManager.Pruner byAge =
+              new MySearcherLifetimeManager.PruneByAge(
                   indexStateManager.getCurrent().getMaxSearcherAgeSec());
           final Set<Long> snapshots = new HashSet<>(snapshotGenToVersion.values());
           slm.prune(
@@ -654,7 +654,7 @@ public class ShardState implements Closeable {
             indexDir,
             taxoDir);
         writer = null;
-        slm = new SearcherLifetimeManager();
+        slm = new MySearcherLifetimeManager();
       }
     }
   }
@@ -792,7 +792,7 @@ public class ShardState implements Closeable {
             indexDir,
             taxoDir);
         writer = null;
-        slm = new SearcherLifetimeManager();
+        slm = new MySearcherLifetimeManager();
       }
     }
   }
@@ -1002,7 +1002,7 @@ public class ShardState implements Closeable {
             indexDir,
             taxoDir);
         writer = null;
-        slm = new SearcherLifetimeManager();
+        slm = new MySearcherLifetimeManager();
       }
     }
   }

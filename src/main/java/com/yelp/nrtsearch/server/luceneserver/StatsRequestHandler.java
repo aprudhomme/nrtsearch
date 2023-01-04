@@ -21,6 +21,7 @@ import com.yelp.nrtsearch.server.grpc.Searcher;
 import com.yelp.nrtsearch.server.grpc.StatsRequest;
 import com.yelp.nrtsearch.server.grpc.StatsResponse;
 import com.yelp.nrtsearch.server.grpc.Taxonomy;
+import com.yelp.nrtsearch.server.luceneserver.search.MySearcherLifetimeManager;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,7 +33,6 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.StandardDirectoryReader;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.SearcherLifetimeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,7 +87,7 @@ public class StatsRequestHandler implements Handler<StatsRequest, StatsResponse>
       // Doesn't actually prune; just gathers stats
       List<Searcher> tmpSearchers = new ArrayList<>();
       shardState.slm.prune(
-          new SearcherLifetimeManager.Pruner() {
+          new MySearcherLifetimeManager.Pruner() {
             @Override
             public boolean doPrune(double ageSec, IndexSearcher indexSearcher) {
               Searcher.Builder searcher = Searcher.newBuilder();
