@@ -178,7 +178,8 @@ public class ReplicationServerClient implements Closeable {
     }
   }
 
-  public void addReplicas(String indexName, int replicaId, String hostName, int port) {
+  public AddReplicaResponse addReplicas(
+      String indexName, int replicaId, String hostName, int port) {
     AddReplicaRequest addReplicaRequest =
         AddReplicaRequest.newBuilder()
             .setMagicNumber(BINARY_MAGIC)
@@ -188,11 +189,12 @@ public class ReplicationServerClient implements Closeable {
             .setPort(port)
             .build();
     try {
-      this.blockingStub.addReplicas(addReplicaRequest);
+      return this.blockingStub.addReplicas(addReplicaRequest);
     } catch (Exception e) {
       /* Note this should allow the replica to start, but it means it will not be able to get new index updates
        * from Primary: https://github.com/Yelp/nrtsearch/issues/86 */
       logger.warn("Replica could NOT register itself with Primary ", e);
+      return null;
     }
   }
 

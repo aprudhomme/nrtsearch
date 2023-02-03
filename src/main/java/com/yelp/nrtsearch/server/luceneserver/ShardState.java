@@ -16,6 +16,7 @@
 package com.yelp.nrtsearch.server.luceneserver;
 
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
+import com.yelp.nrtsearch.server.grpc.AddReplicaResponse;
 import com.yelp.nrtsearch.server.grpc.DeadlineUtils;
 import com.yelp.nrtsearch.server.grpc.IndexLiveSettings;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
@@ -1062,6 +1063,13 @@ public class ShardState implements Closeable {
 
     @Override
     public void run() {
+      boolean nrtPointOnNewPrimary =
+          shardState
+              .indexStateManager
+              .getCurrent()
+              .getGlobalState()
+              .getConfiguration()
+              .getNrtPointOnNewPrimary();
       while (!exit) {
         NRTReplicaNode nrtReplicaNode = shardState.nrtReplicaNode;
         try {
@@ -1070,16 +1078,23 @@ public class ShardState implements Closeable {
               && shardState.isStarted()
               && !shardState.nrtReplicaNode.isKnownToPrimary()
               && !exit) {
-            nrtReplicaNode
-                .getPrimaryAddress()
-                .addReplicas(
-                    shardState.indexStateManager.getCurrent().getName(),
-                    REPLICA_ID,
-                    nrtReplicaNode.getHostPort().getHostName(),
-                    nrtReplicaNode.getHostPort().getPort());
+            AddReplicaResponse response =
+                nrtReplicaNode
+                    .getPrimaryAddress()
+                    .addReplicas(
+                        shardState.indexStateManager.getCurrent().getName(),
+                        REPLICA_ID,
+                        nrtReplicaNode.getHostPort().getHostName(),
+                        nrtReplicaNode.getHostPort().getPort());
+            if (nrtPointOnNewPrimary && response != null) {
+              shardState.nrtReplicaNode.newNRTPoint(
+                  response.getPrimaryGen(), response.getVersion());
+            }
           }
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
+        } catch (IOException e) {
+          logger.warn("Error starting nrt point from new primary", e);
         } catch (StatusRuntimeException e) {
           logger.warn(
               String.format(

@@ -889,6 +889,10 @@ message AddReplicaRequest {
 
 message AddReplicaResponse {
     string ok = 1; //Returns "ok" string on  success
+    //primary, the generation of this primary (should increase each time a new primary starts for this index)
+    int64 primaryGen = 2;
+    //current index version number
+    int64 version = 3;
 }
 
 /* Holds incRef'd file level details for one point-in-time segment infos on the primary node. */

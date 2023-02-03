@@ -90,6 +90,7 @@ public class LuceneServerConfiguration {
   private final boolean syncInitialNrtPoint;
   private final long initialSyncPrimaryWaitMs;
   private final long initialSyncMaxTimeMs;
+  private final boolean nrtPointOnNewPrimary;
   private final boolean indexVerbose;
   private final FileCopyConfig fileCopyConfig;
   private final ScriptCacheConfig scriptCacheConfig;
@@ -158,6 +159,7 @@ public class LuceneServerConfiguration {
         configReader.getLong("initialSyncPrimaryWaitMs", DEFAULT_INITIAL_SYNC_PRIMARY_WAIT_MS);
     initialSyncMaxTimeMs =
         configReader.getLong("initialSyncMaxTimeMs", DEFAULT_INITIAL_SYNC_MAX_TIME_MS);
+    nrtPointOnNewPrimary = configReader.getBoolean("nrtPointOnNewPrimary", false);
     indexVerbose = configReader.getBoolean("indexVerbose", false);
     fileCopyConfig = FileCopyConfig.fromConfig(configReader);
     threadPoolConfiguration = new ThreadPoolConfiguration(configReader);
@@ -292,6 +294,10 @@ public class LuceneServerConfiguration {
 
   public long getInitialSyncMaxTimeMs() {
     return initialSyncMaxTimeMs;
+  }
+
+  public boolean getNrtPointOnNewPrimary() {
+    return nrtPointOnNewPrimary;
   }
 
   public boolean getIndexVerbose() {

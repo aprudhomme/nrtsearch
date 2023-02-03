@@ -2184,6 +2184,16 @@
       "properties": {
         "ok": {
           "type": "string"
+        },
+        "primaryGen": {
+          "type": "string",
+          "format": "int64",
+          "title": "primary, the generation of this primary (should increase each time a new primary starts for this index)"
+        },
+        "version": {
+          "type": "string",
+          "format": "int64",
+          "title": "current index version number"
         }
       }
     },

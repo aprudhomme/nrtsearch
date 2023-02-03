@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import com.yelp.nrtsearch.server.grpc.AddReplicaResponse;
 import com.yelp.nrtsearch.server.grpc.FilesMetadata;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.grpc.TransferStatus;
@@ -398,8 +399,8 @@ public class NRTPrimaryNode extends PrimaryNode {
     writer.getConfig().setRAMBufferSizeMB(mb);
   }
 
-  public void addReplica(int replicaID, ReplicationServerClient replicationServerClient)
-      throws IOException {
+  public AddReplicaResponse addReplica(
+      int replicaID, ReplicationServerClient replicationServerClient) throws IOException {
     logMessage("add replica: " + warmingSegments.size() + " current warming merges ");
     ReplicaDetails replicaDetails = new ReplicaDetails(replicaID, replicationServerClient);
     if (!replicasInfos.contains(replicaDetails)) {
@@ -446,6 +447,11 @@ public class NRTPrimaryNode extends PrimaryNode {
         }
       }
     }
+    return AddReplicaResponse.newBuilder()
+        .setOk("ok")
+        .setPrimaryGen(primaryGen)
+        .setVersion(getCurrentSearchingVersion())
+        .build();
   }
 
   public Collection<ReplicaDetails> getNodesInfo() {

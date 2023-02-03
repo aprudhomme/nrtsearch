@@ -16,6 +16,8 @@
 package com.yelp.nrtsearch.server.config;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import java.io.ByteArrayInputStream;
@@ -142,5 +144,18 @@ public class LuceneServerConfigurationTest {
     String config = "initialSyncMaxTimeMs: 100";
     LuceneServerConfiguration luceneConfig = getForConfig(config);
     assertEquals(100L, luceneConfig.getInitialSyncMaxTimeMs());
+  }
+
+  public void testNrtPointOnNewPrimary_default() {
+    String config = "nodeName: \"lucene_server_foo\"";
+    LuceneServerConfiguration luceneConfig = getForConfig(config);
+    assertFalse(luceneConfig.getNrtPointOnNewPrimary());
+  }
+
+  @Test
+  public void testNrtPointOnNewPrimary_set() {
+    String config = "nrtPointOnNewPrimary: true";
+    LuceneServerConfiguration luceneConfig = getForConfig(config);
+    assertTrue(luceneConfig.getNrtPointOnNewPrimary());
   }
 }

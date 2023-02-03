@@ -33,7 +33,7 @@ public class AddReplicaHandler implements Handler<AddReplicaRequest, AddReplicaR
       throw new RuntimeException("AddReplica invoked with Invalid Magic Number");
     }
     try {
-      shardState.nrtPrimaryNode.addReplica(
+      return shardState.nrtPrimaryNode.addReplica(
           addReplicaRequest.getReplicaId(),
           // channel for primary to talk to replica
           new ReplicationServerClient(
@@ -41,6 +41,5 @@ public class AddReplicaHandler implements Handler<AddReplicaRequest, AddReplicaR
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
-    return AddReplicaResponse.newBuilder().setOk("ok").build();
   }
 }
