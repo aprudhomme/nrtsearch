@@ -95,7 +95,7 @@ public interface IndexStateManager extends Closeable {
    * @param primaryClient replication client for replicas to talk to primary
    * @throws IOException on error accessing index data
    */
-  void start(Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient)
+  void start(Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient, IndexDataManager indexDataManager)
       throws IOException;
 
   /**

@@ -28,6 +28,7 @@ import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.field.IdFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.TextBaseFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.properties.GlobalOrdinalable;
+import com.yelp.nrtsearch.server.luceneserver.index.IndexDataManager;
 import com.yelp.nrtsearch.server.luceneserver.index.IndexSimilarity;
 import com.yelp.nrtsearch.server.luceneserver.warming.Warmer;
 import com.yelp.nrtsearch.server.luceneserver.warming.WarmerConfig;
@@ -320,7 +321,7 @@ public abstract class IndexState implements Closeable {
    * @throws IOException on filesystem error
    */
   public abstract void start(
-      Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient)
+      Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient, IndexDataManager indexDataManager)
       throws IOException;
 
   /**

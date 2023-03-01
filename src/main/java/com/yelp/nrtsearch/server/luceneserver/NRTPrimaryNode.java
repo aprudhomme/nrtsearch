@@ -18,7 +18,10 @@ package com.yelp.nrtsearch.server.luceneserver;
 import com.yelp.nrtsearch.server.grpc.FilesMetadata;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.grpc.TransferStatus;
+import com.yelp.nrtsearch.server.luceneserver.index.IndexDataManager;
 import com.yelp.nrtsearch.server.luceneserver.index.IndexStateManager;
+import com.yelp.nrtsearch.server.luceneserver.index.BackendDataManager;
+import com.yelp.nrtsearch.server.luceneserver.nrt.NrtUploadManager;
 import com.yelp.nrtsearch.server.monitoring.NrtMetrics;
 import com.yelp.nrtsearch.server.utils.HostPort;
 import io.grpc.Deadline;
@@ -42,6 +45,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.replicator.nrt.CopyState;
 import org.apache.lucene.replicator.nrt.FileMetaData;
 import org.apache.lucene.replicator.nrt.PrimaryNode;
 import org.apache.lucene.search.IndexSearcher;
@@ -60,8 +64,11 @@ public class NRTPrimaryNode extends PrimaryNode {
   final List<MergePreCopy> warmingSegments = Collections.synchronizedList(new ArrayList<>());
   final Queue<ReplicaDetails> replicasInfos = new ConcurrentLinkedQueue<>();
 
+  private final NrtUploadManager nrtUploadManager;
+
   public NRTPrimaryNode(
       IndexStateManager indexStateManager,
+      IndexDataManager indexDataManager,
       HostPort hostPort,
       IndexWriter writer,
       int id,
@@ -74,6 +81,13 @@ public class NRTPrimaryNode extends PrimaryNode {
     this.hostPort = hostPort;
     this.indexName = indexStateManager.getCurrent().getName();
     this.indexStateManager = indexStateManager;
+    CopyState initialCopyState = getCopyState();
+    try {
+      indexDataManager.setInitialCopyState(initialCopyState);
+    } finally {
+      releaseCopyState(initialCopyState);
+    }
+    this.nrtUploadManager = new NrtUploadManager(this, indexDataManager);
   }
 
   public static class ReplicaDetails {
@@ -237,6 +251,8 @@ public class NRTPrimaryNode extends PrimaryNode {
     @Override
     protected IndexSearcher refreshIfNeeded(IndexSearcher referenceToRefresh) throws IOException {
       if (primary.flushAndRefresh()) {
+        primary.nrtUploadManager.uploadAsync(primary.getCopyState());
+        //TODO START HERE
         primary.sendNewNRTPointToReplicas();
         // NOTE: steals a ref from one ReferenceManager to another!
         return SearcherManager.getSearcher(
@@ -262,6 +278,22 @@ public class NRTPrimaryNode extends PrimaryNode {
   @Override
   protected void preCopyMergedSegmentFiles(
       SegmentCommitInfo info, Map<String, FileMetaData> files) {
+    if (true) {
+      preCopyMergedSegmentFilesGRPC(info, files);
+    } else {
+      preCopyMergedSegmentFilesRemote(info, files);
+    }
+  }
+
+  private void preCopyMergedSegmentFilesRemote(SegmentCommitInfo info, Map<String, FileMetaData> files) {
+    long mergeStartNS = System.nanoTime();
+    if (replicasInfos.isEmpty()) {
+      logMessage("no replicas, skip warming " + info);
+      return;
+    }
+  }
+
+  private void preCopyMergedSegmentFilesGRPC(SegmentCommitInfo info, Map<String, FileMetaData> files) {
     long mergeStartNS = System.nanoTime();
     if (replicasInfos.isEmpty()) {
       logMessage("no replicas, skip warming " + info);

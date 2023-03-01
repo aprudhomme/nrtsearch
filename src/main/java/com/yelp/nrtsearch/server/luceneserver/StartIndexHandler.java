@@ -22,6 +22,7 @@ import com.yelp.nrtsearch.server.grpc.ReplicationServerClient.DiscoveryFileAndPo
 import com.yelp.nrtsearch.server.grpc.RestoreIndex;
 import com.yelp.nrtsearch.server.grpc.StartIndexRequest;
 import com.yelp.nrtsearch.server.grpc.StartIndexResponse;
+import com.yelp.nrtsearch.server.luceneserver.index.IndexDataManager;
 import com.yelp.nrtsearch.server.luceneserver.index.IndexStateManager;
 import com.yelp.nrtsearch.server.utils.FileUtil;
 import java.io.IOException;
@@ -43,6 +44,7 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
   private final Archiver incArchiver;
   private final String archiveDirectory;
   private final IndexStateManager indexStateManager;
+  private final IndexDataManager indexDataManager;
   private final boolean backupFromIncArchiver;
   private final boolean restoreFromIncArchiver;
   private final int discoveryFileUpdateIntervalMs;
@@ -55,6 +57,7 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
       boolean backupFromIncArchiver,
       boolean restoreFromIncArchiver,
       IndexStateManager indexStateManager,
+      IndexDataManager indexDataManager,
       int discoveryFileUpdateIntervalMs) {
     this.archiver = archiver;
     this.incArchiver = incArchiver;
@@ -62,6 +65,7 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
     this.backupFromIncArchiver = backupFromIncArchiver;
     this.restoreFromIncArchiver = restoreFromIncArchiver;
     this.indexStateManager = indexStateManager;
+    this.indexDataManager = indexDataManager;
     this.discoveryFileUpdateIntervalMs = discoveryFileUpdateIntervalMs;
   }
 
@@ -91,12 +95,13 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
                 deleteDownloadedBackupDirectories(restoreIndex.getResourceName());
               }
 
-              dataPath =
+              dataPath = null;
+              /*dataPath =
                   downloadArtifact(
                       restoreIndex.getServiceName(),
                       restoreIndex.getResourceName(),
                       INDEXED_DATA_TYPE.DATA,
-                      restoreFromIncArchiver);
+                      restoreFromIncArchiver);*/
             } else {
               throw new IllegalStateException(
                   "Index " + indexState.getName() + " already restored");
@@ -124,7 +129,7 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
           indexState.initWarmer(archiver);
         }
 
-        indexStateManager.start(mode, dataPath, primaryGen, primaryClient);
+        indexStateManager.start(mode, dataPath, primaryGen, primaryClient, indexDataManager);
 
         if (mode.equals(Mode.PRIMARY)) {
           BackupIndexRequestHandler backupIndexRequestHandler =

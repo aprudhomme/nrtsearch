@@ -19,10 +19,12 @@ import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.grpc.DeadlineUtils;
 import com.yelp.nrtsearch.server.grpc.IndexLiveSettings;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
+import com.yelp.nrtsearch.server.luceneserver.NRTPrimaryNode.PrimaryNodeReferenceManager;
 import com.yelp.nrtsearch.server.luceneserver.SearchHandler.SearchHandlerException;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.IndexableFieldDef.FacetValueType;
 import com.yelp.nrtsearch.server.luceneserver.field.properties.GlobalOrdinalable;
+import com.yelp.nrtsearch.server.luceneserver.index.IndexDataManager;
 import com.yelp.nrtsearch.server.luceneserver.index.IndexStateManager;
 import com.yelp.nrtsearch.server.luceneserver.index.NrtIndexWriter;
 import com.yelp.nrtsearch.server.luceneserver.warming.WarmerConfig;
@@ -144,7 +146,7 @@ public class ShardState implements Closeable {
   /** Indexes changes, and provides the live searcher, possibly searching a specific generation. */
   private SearcherTaxonomyManager manager;
 
-  private ReferenceManager<IndexSearcher> searcherManager;
+  private PrimaryNodeReferenceManager searcherManager;
 
   /** Thread to periodically reopen the index. */
   private ControlledRealTimeReopenThread<SearcherTaxonomyManager.SearcherAndTaxonomy> reopenThread;
@@ -667,7 +669,7 @@ public class ShardState implements Closeable {
    * @param primaryGen generation to use for {@link NRTPrimaryNode}, uses value from global state if
    *     -1
    */
-  public synchronized void startPrimary(long primaryGen) throws IOException {
+  public synchronized void startPrimary(long primaryGen, IndexDataManager indexDataManager) throws IOException {
     if (isStarted()) {
       throw new IllegalStateException("index \"" + name + "\" was already started");
     }
@@ -748,6 +750,7 @@ public class ShardState implements Closeable {
       nrtPrimaryNode =
           new NRTPrimaryNode(
               indexStateManager,
+              indexDataManager,
               hostPort,
               writer,
               0,
@@ -1029,17 +1032,9 @@ public class ShardState implements Closeable {
 
   public void maybeRefreshBlocking() throws IOException {
     if (nrtPrimaryNode != null) {
-      /* invokes: SearcherManager.refreshIfNeeded which creates a new Searcher
-       * over a new IndexReader if new docs have been written */
-      nrtPrimaryNode.getSearcherManager().maybeRefreshBlocking();
-      /* Do we need this as well? (probably)
-        invokes PrimaryNodeReferenceManager.refreshIfNeeded()
-        The above method calls primary.flushAndRefresh() (which updates copyState on Primary) and primary.sendNewNRTPointToReplicas().
-        This is also run in a separate thread every near-real-time interval (1s) (see: restartReopenThread for Primary)
-      */
       searcherManager.maybeRefreshBlocking();
     } else {
-      /* SearchAndTaxnomyManager for stand alone mode */
+      /* SearchAndTaxnomyManager for standalone mode */
       manager.maybeRefreshBlocking();
     }
   }

@@ -380,7 +380,7 @@ public class ImmutableIndexState extends IndexState {
 
   @Override
   public void start(
-      Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient)
+      Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient, IndexDataManager indexDataManager)
       throws IOException {
     if (isStarted()) {
       throw new IllegalStateException("index \"" + getName() + "\" was already started");
@@ -405,7 +405,7 @@ public class ImmutableIndexState extends IndexState {
         break;
       case PRIMARY:
         for (ShardState shard : shards.values()) {
-          shard.startPrimary(primaryGen);
+          shard.startPrimary(primaryGen, indexDataManager);
         }
         break;
       case REPLICA:
@@ -590,7 +590,7 @@ public class ImmutableIndexState extends IndexState {
 
       SnapshotId snapshotId = null;
       try {
-        if (this.getShard(0).isPrimary()
+        if (false && this.getShard(0).isPrimary()
             && getGlobalState().getIncArchiver().isPresent()
             && backupFromIncArchiver) {
           CreateSnapshotRequest createSnapshotRequest =

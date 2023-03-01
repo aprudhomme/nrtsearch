@@ -195,7 +195,7 @@ public class BackendStateManager implements IndexStateManager {
 
   @Override
   public synchronized void start(
-      Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient)
+      Mode serverMode, Path dataPath, long primaryGen, ReplicationServerClient primaryClient, IndexDataManager indexDataManager)
       throws IOException {
     if (currentState == null) {
       throw new IllegalStateException("No state for index: " + indexName);
@@ -203,7 +203,7 @@ public class BackendStateManager implements IndexStateManager {
     if (currentState.isStarted()) {
       throw new IllegalStateException("Index already started: " + indexName);
     }
-    currentState.start(serverMode, dataPath, primaryGen, primaryClient);
+    currentState.start(serverMode, dataPath, primaryGen, primaryClient, indexDataManager);
     if (serverMode != Mode.REPLICA && !currentState.getCurrentStateInfo().getCommitted()) {
       logger.info("Doing initial commit for index: " + indexName);
       currentState.commit(globalState.getConfiguration().getBackupWithInArchiver());
