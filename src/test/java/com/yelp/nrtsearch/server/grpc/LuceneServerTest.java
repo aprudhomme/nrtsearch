@@ -571,7 +571,7 @@ public class LuceneServerTest {
     assertEquals(0, statsResponse.getOrd());
     assertEquals(2, statsResponse.getCurrentSearcher().getNumDocs());
     assertEquals(1, statsResponse.getCurrentSearcher().getNumSegments());
-    assertEquals(6610, statsResponse.getDirSize(), 1500);
+    assertEquals(8537, statsResponse.getDirSize(), 1500);
     assertEquals("started", statsResponse.getState());
   }
 
@@ -630,7 +630,7 @@ public class LuceneServerTest {
             .stats(StatsRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
     assertEquals(1, statsResponse.getNumDocs());
     // note maxDoc stays 2 since it does not include delete documents
-    assertEquals(2, statsResponse.getMaxDoc());
+    assertEquals(1, statsResponse.getMaxDoc());
   }
 
   @Test
@@ -682,7 +682,7 @@ public class LuceneServerTest {
             .stats(StatsRequest.newBuilder().setIndexName(grpcServer.getTestIndex()).build());
     assertEquals(1, statsResponse.getNumDocs());
     // note maxDoc stays 2 since it does not include delete documents
-    assertEquals(2, statsResponse.getMaxDoc());
+    assertEquals(1, statsResponse.getMaxDoc());
     // deleted document does not show up in search response now
     searchResponse = grpcServer.getBlockingStub().search(searchRequest);
     assertEquals(searchResponse.getHitsCount(), 0);

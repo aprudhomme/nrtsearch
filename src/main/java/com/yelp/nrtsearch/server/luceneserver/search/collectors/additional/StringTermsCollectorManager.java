@@ -124,6 +124,7 @@ public class StringTermsCollectorManager extends TermsCollectorManager {
 
       public TermsLeafCollector(LeafReaderContext leafContext) throws IOException {
         docValues = (LoadedDocValues<String>) fieldDef.getDocValues(leafContext);
+        System.out.println("Values type: " + docValues.getClass());
         NestedCollectors nestedCollectors = getNestedCollectors();
         if (nestedCollectors != null) {
           nestedLeafCollectors = nestedCollectors.getLeafCollector(leafContext);

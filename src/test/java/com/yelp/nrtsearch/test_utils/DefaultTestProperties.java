@@ -18,6 +18,6 @@ package com.yelp.nrtsearch.test_utils;
 public class DefaultTestProperties {
 
   public static final int PORT = 50051;
-  public static final int REPLICATION_PORT = 50052;
+  public static final int REPLICATION_PORT = 50054;
   public static final String S3_BUCKET_NAME = "test-bucket";
 }

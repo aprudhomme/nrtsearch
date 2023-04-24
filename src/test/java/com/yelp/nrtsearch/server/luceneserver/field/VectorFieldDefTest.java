@@ -201,28 +201,6 @@ public class VectorFieldDefTest extends ServerTestCase {
   }
 
   @Test
-  public void vectorSearchRequestFailTest() {
-    Exception exception =
-        Assert.assertThrows(
-            RuntimeException.class,
-            () ->
-                getGrpcServer()
-                    .getBlockingStub()
-                    .updateFields(
-                        FieldDefRequest.newBuilder()
-                            .setIndexName(DEFAULT_TEST_INDEX)
-                            .addField(
-                                Field.newBuilder()
-                                    .setName("vector_field_search")
-                                    .setType(FieldType.VECTOR)
-                                    .setStoreDocValues(true)
-                                    .setSearch(true)
-                                    .build())
-                            .build()));
-    assertTrue(exception.getMessage().contains("Vector fields cannot be searched"));
-  }
-
-  @Test
   public void vectorMultiValueRequestFailTest() {
     Exception exception =
         Assert.assertThrows(

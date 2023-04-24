@@ -23,17 +23,29 @@ import com.yelp.nrtsearch.server.luceneserver.doc.LoadedDocValues.SingleVector;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.util.BytesRef;
 
 public class VectorFieldDef extends IndexableFieldDef {
 
+  private static final Map<String, VectorSimilarityFunction> SIMILARITY_FUNCTION_MAP =
+      Map.of(
+          "l2_norm",
+          VectorSimilarityFunction.EUCLIDEAN,
+          "dot_product",
+          VectorSimilarityFunction.DOT_PRODUCT,
+          "cosine",
+          VectorSimilarityFunction.COSINE);
   private final int vectorDimensions;
+  private final VectorSimilarityFunction similarityFunction;
   private static final Gson GSON = new GsonBuilder().serializeNulls().create();
 
   /**
@@ -43,6 +55,7 @@ public class VectorFieldDef extends IndexableFieldDef {
   protected VectorFieldDef(String name, Field requestField) {
     super(name, requestField);
     this.vectorDimensions = requestField.getVectorDimensions();
+    this.similarityFunction = SIMILARITY_FUNCTION_MAP.get(requestField.getSimilarity());
   }
 
   public int getVectorDimensions() {
@@ -55,16 +68,17 @@ public class VectorFieldDef extends IndexableFieldDef {
       throw new IllegalArgumentException("Vector fields cannot be stored");
     }
 
-    if (requestField.getSearch()) {
-      throw new IllegalArgumentException("Vector fields cannot be searched");
-    }
-
     if (requestField.getMultiValued()) {
       throw new IllegalArgumentException("Vector fields cannot be multivalued");
     }
 
     if (requestField.getVectorDimensions() <= 0) {
       throw new IllegalArgumentException("Vector dimension should be > 0");
+    }
+
+    if (requestField.getSearch()
+        && !SIMILARITY_FUNCTION_MAP.containsKey(requestField.getSimilarity())) {
+      throw new IllegalArgumentException("Unknown similarity: " + requestField.getSimilarity());
     }
   }
 
@@ -84,14 +98,21 @@ public class VectorFieldDef extends IndexableFieldDef {
   @Override
   public void parseDocumentField(
       Document document, List<String> fieldValues, List<List<String>> facetHierarchyPaths) {
+    float[] floatArr = null;
     if (fieldValues.size() > 1 && !isMultiValue()) {
       throw new IllegalArgumentException(
           "Cannot index multiple values into single value field: " + getName());
     } else if (fieldValues.size() == 1) {
       if (hasDocValues() && docValuesType == DocValuesType.BINARY) {
-        float[] floatArr = parseVectorFieldToFloatArr(fieldValues.get(0));
+        floatArr = parseVectorFieldToFloatArr(fieldValues.get(0));
         byte[] floatBytes = convertFloatArrToBytes(floatArr);
         document.add(new BinaryDocValuesField(getName(), new BytesRef(floatBytes)));
+      }
+      if (isSearchable()) {
+        if (floatArr == null) {
+          floatArr = parseVectorFieldToFloatArr(fieldValues.get(0));
+        }
+        document.add(new KnnFloatVectorField(getName(), floatArr));
       }
     }
   }

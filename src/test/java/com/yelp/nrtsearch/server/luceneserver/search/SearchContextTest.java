@@ -87,7 +87,8 @@ public class SearchContextTest extends ServerTestCase {
         .setCollector(new DummyCollector())
         .setFetchTasks(new FetchTasks(Collections.emptyList()))
         .setRescorers(Collections.emptyList())
-        .setSharedDocContext(new DefaultSharedDocContext());
+        .setSharedDocContext(new DefaultSharedDocContext())
+        .setKNNCollectors(Collections.emptyList());
   }
 
   @Test
@@ -173,5 +174,10 @@ public class SearchContextTest extends ServerTestCase {
   @Test(expected = NullPointerException.class)
   public void testMissingSharedDocContext() throws Exception {
     getCompleteBuilder().setSharedDocContext(null).build(true);
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testMissingKNNCollectors() throws Exception {
+    getCompleteBuilder().setKNNCollectors(null).build(true);
   }
 }

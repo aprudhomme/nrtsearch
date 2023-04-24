@@ -15,6 +15,8 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import static org.apache.lucene.search.BoostAttribute.DEFAULT_BOOST;
+
 import com.yelp.nrtsearch.server.grpc.FuzzyParams;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.index.Term;
@@ -38,9 +40,9 @@ public class MatchQueryBuilder extends QueryBuilder {
   }
 
   @Override
-  protected Query newTermQuery(Term term) {
+  protected Query newTermQuery(Term term, float boost) {
     if (maxEdits == 0) {
-      return super.newTermQuery(term);
+      return super.newTermQuery(term, DEFAULT_BOOST);
     } else {
       return new FuzzyQuery(term, maxEdits, prefixLength, maxExpansions, transpositions);
     }

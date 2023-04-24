@@ -46,6 +46,7 @@ import com.yelp.nrtsearch.server.luceneserver.search.SearchRequestProcessor;
 import com.yelp.nrtsearch.server.luceneserver.search.SearcherResult;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -68,6 +69,7 @@ import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.search.DoubleValues;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KNNCollector;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
@@ -126,9 +128,21 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
 
       long searchStartTime = System.nanoTime();
 
-      SearcherResult searcherResult = null;
-      TopDocs hits;
-      if (!searchRequest.getFacetsList().isEmpty()) {
+      SearcherResult searcherResult;
+      if (!searchContext.getKNNCollectors().isEmpty()) {
+        // TODO have option to also run a standard query and merge in those results
+        for (KNNCollector knnCollector : searchContext.getKNNCollectors()) {
+          knnCollector.startCollection(s.searcher.getSlices(), threadPoolExecutor);
+        }
+        TopDocs[] knnTopDocs = new TopDocs[searchContext.getKNNCollectors().size()];
+        for (int i = 0; i < searchContext.getKNNCollectors().size(); ++i) {
+          knnTopDocs[i] = searchContext.getKNNCollectors().get(i).getResult();
+        }
+        // TODO combine top docs from multiple vector queries, adding scores when present
+        // in multiple results
+        TopDocs mergedTopDocs = knnTopDocs[0];
+        searcherResult = new SearcherResult(mergedTopDocs, Collections.emptyMap());
+      } else if (!searchRequest.getFacetsList().isEmpty()) {
         if (!(searchContext.getQuery() instanceof DrillDownQuery)) {
           throw new IllegalArgumentException("Can only use DrillSideways on DrillDownQuery");
         }
@@ -163,19 +177,30 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
           throw e;
         }
         searcherResult = concurrentDrillSidewaysResult.collectorResult;
-        hits = searcherResult.getTopDocs();
         searchContext.getResponseBuilder().addAllFacetResult(grpcFacetResults);
         searchContext
             .getResponseBuilder()
             .addAllFacetResult(
                 FacetTopDocs.facetTopDocsSample(
-                    hits, searchRequest.getFacetsList(), indexState, s.searcher, diagnostics));
+                    searcherResult.getTopDocs(),
+                    searchRequest.getFacetsList(),
+                    indexState,
+                    s.searcher,
+                    diagnostics));
       } else {
-        searcherResult =
-            s.searcher.search(
-                searchContext.getQuery(), searchContext.getCollector().getWrappedManager());
-        hits = searcherResult.getTopDocs();
+        try {
+          searcherResult =
+              s.searcher.search(
+                  searchContext.getQuery(), searchContext.getCollector().getWrappedManager());
+        } catch (RuntimeException e) {
+          CollectionTimeoutException timeoutException = findTimeoutException(e);
+          if (timeoutException != null) {
+            throw new CollectionTimeoutException(timeoutException.getMessage(), e);
+          }
+          throw e;
+        }
       }
+      TopDocs hits = searcherResult.getTopDocs();
 
       List<Explanation> explanations = null;
       if (searchRequest.getExplain()) {

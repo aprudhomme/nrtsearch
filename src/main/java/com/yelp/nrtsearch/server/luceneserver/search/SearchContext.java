@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager.SearcherAndTaxonomy;
+import org.apache.lucene.search.KNNCollector;
 import org.apache.lucene.search.Query;
 
 /** Search context class to provide all the information to perform a search. */
@@ -49,6 +50,7 @@ public class SearchContext implements FieldFetchContext {
   private final SharedDocContext sharedDocContext;
   private final HighlightFetchTask highlightFetchTask;
   private final Map<String, Object> extraContext;
+  private final List<KNNCollector> knnCollectors;
 
   private SearchContext(Builder builder, boolean validate) {
     this.indexState = builder.indexState;
@@ -67,6 +69,7 @@ public class SearchContext implements FieldFetchContext {
     this.sharedDocContext = builder.sharedDocContext;
     this.highlightFetchTask = builder.highlightFetchTask;
     this.extraContext = builder.extraContext;
+    this.knnCollectors = builder.knnCollectors;
 
     if (validate) {
       validate();
@@ -165,6 +168,10 @@ public class SearchContext implements FieldFetchContext {
     return extraContext;
   }
 
+  public List<KNNCollector> getKNNCollectors() {
+    return knnCollectors;
+  }
+
   /** Get new context builder instance * */
   public static Builder newBuilder() {
     return new Builder();
@@ -182,6 +189,7 @@ public class SearchContext implements FieldFetchContext {
     Objects.requireNonNull(fetchTasks);
     Objects.requireNonNull(rescorers);
     Objects.requireNonNull(sharedDocContext);
+    Objects.requireNonNull(knnCollectors);
 
     if (timestampSec < 0) {
       throw new IllegalStateException("Invalid timestamp value: " + timestampSec);
@@ -220,6 +228,7 @@ public class SearchContext implements FieldFetchContext {
     private SharedDocContext sharedDocContext;
     private HighlightFetchTask highlightFetchTask;
     private Map<String, Object> extraContext;
+    private List<KNNCollector> knnCollectors;
 
     private Builder() {}
 
@@ -318,6 +327,11 @@ public class SearchContext implements FieldFetchContext {
 
     public Builder setExtraContext(Map<String, Object> extraContext) {
       this.extraContext = extraContext;
+      return this;
+    }
+
+    public Builder setKNNCollectors(List<KNNCollector> knnCollectors) {
+      this.knnCollectors = knnCollectors;
       return this;
     }
 

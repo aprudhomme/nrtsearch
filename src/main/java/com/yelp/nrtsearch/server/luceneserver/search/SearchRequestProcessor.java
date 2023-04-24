@@ -21,6 +21,7 @@ import com.yelp.nrtsearch.server.grpc.PluginRescorer;
 import com.yelp.nrtsearch.server.grpc.ProfileResult;
 import com.yelp.nrtsearch.server.grpc.QueryRescorer;
 import com.yelp.nrtsearch.server.grpc.SearchRequest;
+import com.yelp.nrtsearch.server.grpc.SearchRequest.KNNQuery;
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.grpc.VirtualField;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
@@ -64,6 +65,7 @@ import org.apache.lucene.queryparser.classic.QueryParserBase;
 import org.apache.lucene.queryparser.simple.SimpleQueryParser;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KNNCollector;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.util.QueryBuilder;
 
@@ -163,6 +165,13 @@ public class SearchRequestProcessor {
       contextBuilder.setHighlightFetchTask(highlightFetchTask);
     }
     contextBuilder.setExtraContext(new ConcurrentHashMap<>());
+
+    List<KNNCollector> knnCollectors = new ArrayList<>();
+    for (KNNQuery knnQuery : searchRequest.getKnnList()) {
+      knnCollectors.add(new KNNCollector(knnQuery, indexState, searcherAndTaxonomy.searcher));
+    }
+    contextBuilder.setKNNCollectors(knnCollectors);
+
     SearchContext searchContext = contextBuilder.build(true);
     // Give underlying collectors access to the search context
     docCollector.setSearchContext(searchContext);
