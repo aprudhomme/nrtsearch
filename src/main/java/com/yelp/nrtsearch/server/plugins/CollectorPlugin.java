@@ -18,9 +18,13 @@ package com.yelp.nrtsearch.server.plugins;
 import com.yelp.nrtsearch.server.grpc.CollectorResult;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.AdditionalCollectorManager;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorProvider;
+import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorWrapper;
+import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorWrapperProvider;
 import java.util.Collections;
 import java.util.Map;
 import org.apache.lucene.search.Collector;
+import org.apache.lucene.search.CollectorManager;
+import org.apache.lucene.search.TopDocs;
 
 /**
  * Plugin interface for providing custom {@link AdditionalCollectorManager}s. Provides info for
@@ -35,6 +39,14 @@ public interface CollectorPlugin {
           CollectorProvider<
               ? extends AdditionalCollectorManager<? extends Collector, CollectorResult>>>
       getCollectors() {
+    return Collections.emptyMap();
+  }
+
+  default Map<
+          String,
+          CollectorWrapperProvider<
+              CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>>
+      getCollectorWrappers() {
     return Collections.emptyMap();
   }
 }

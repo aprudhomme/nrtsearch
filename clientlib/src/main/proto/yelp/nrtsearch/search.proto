@@ -434,6 +434,7 @@ message SearchRequest {
     bool explain = 25;
     // Search nested object fields for each hit
     map<string, InnerHit> inner_hits = 26;
+    repeated CollectorWrapper collector_wrappers = 27;
 }
 
 /* Inner Hit search request */
@@ -917,4 +918,9 @@ message Highlight {
     repeated string fields = 2;
     // Map of field name to highlight settings for field, overrides request level highlight settings
     map<string, Settings> field_settings = 3;
+}
+
+message CollectorWrapper {
+    string name = 1;
+    google.protobuf.Struct params = 2;
 }

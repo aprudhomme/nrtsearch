@@ -54,8 +54,10 @@ public class MyTopSuggestDocsCollector extends DocCollector {
   public MyTopSuggestDocsCollector(
       CollectorCreatorContext context,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
-          additionalCollectors) {
-    super(context, additionalCollectors);
+          additionalCollectors,
+      List<CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>
+          collectorWrappers) {
+    super(context, additionalCollectors, collectorWrappers);
     if (!additionalCollectors.isEmpty()) {
       throw new IllegalArgumentException("additionalCollectors must be empty");
     }

@@ -46,8 +46,10 @@ public class SortFieldCollector extends DocCollector {
   public SortFieldCollector(
       CollectorCreatorContext context,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
-          additionalCollectors) {
-    super(context, additionalCollectors);
+          additionalCollectors,
+      List<CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>
+          collectorWrappers) {
+    super(context, additionalCollectors, collectorWrappers);
     FieldDoc searchAfter = null;
     int topHits = getNumHitsToCollect();
     int totalHitsThreshold = TOTAL_HITS_THRESHOLD;

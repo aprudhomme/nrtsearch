@@ -313,7 +313,7 @@ public class TimeoutTest extends ServerTestCase {
                         context,
                         new TimeoutWrapper(
                             new SearchCollectorManager(
-                                context.getCollector(), Collections.emptyList()),
+                                context.getCollector().getManager(), Collections.emptyList()),
                             request.getTimeoutSec(),
                             request.getTimeoutCheckEvery(),
                             false,
@@ -427,7 +427,8 @@ public class TimeoutTest extends ServerTestCase {
                 getTopDocs(
                     context,
                     new TimeoutWrapper(
-                        new SearchCollectorManager(context.getCollector(), Collections.emptyList()),
+                        new SearchCollectorManager(
+                            context.getCollector().getManager(), Collections.emptyList()),
                         request.getTimeoutSec(),
                         request.getTimeoutCheckEvery(),
                         true,

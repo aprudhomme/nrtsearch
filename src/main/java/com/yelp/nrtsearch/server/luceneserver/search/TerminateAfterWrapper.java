@@ -94,7 +94,7 @@ public class TerminateAfterWrapper<C extends Collector>
    * {@link Collector} implementation that wraps another collector and terminates collection after a
    * certain global count of documents is reached.
    */
-  public class TerminateAfterCollectorWrapper implements Collector {
+  public class TerminateAfterCollectorWrapper implements Collector, NotifyCollectionCompleted {
 
     private final C collector;
     private boolean terminatedEarly = false;
@@ -114,6 +114,11 @@ public class TerminateAfterWrapper<C extends Collector>
     @Override
     public ScoreMode scoreMode() {
       return collector.scoreMode();
+    }
+
+    @Override
+    public void collectionCompleted() {
+      NotifyCollectionCompleted.maybeNotify(collector);
     }
 
     /**

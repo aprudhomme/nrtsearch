@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import com.yelp.nrtsearch.server.luceneserver.search.NotifyCollectionCompleted;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -283,5 +284,6 @@ public class MyIndexSearcher extends IndexSearcher {
         }
       }
     }
+    NotifyCollectionCompleted.maybeNotify(collector);
   }
 }

@@ -44,7 +44,6 @@ import org.apache.lucene.util.Bits;
 public class SearchCollectorManager
     implements CollectorManager<SearchCollectorManager.SearchCollector, SearcherResult> {
 
-  private final DocCollector docCollector;
   private final CollectorManager<? extends Collector, ? extends TopDocs> docCollectorManger;
   private final List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
       collectorManagers;
@@ -52,15 +51,14 @@ public class SearchCollectorManager
   /**
    * Constructor.
    *
-   * @param docCollector collection info for getting the top documents
+   * @param docCollectorManger collection info for getting the top documents
    * @param collectorManagers additional collectors
    */
   public SearchCollectorManager(
-      DocCollector docCollector,
+      CollectorManager<? extends Collector, ? extends TopDocs> docCollectorManger,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
           collectorManagers) {
-    this.docCollector = docCollector;
-    this.docCollectorManger = docCollector.getManager();
+    this.docCollectorManger = docCollectorManger;
     this.collectorManagers = collectorManagers;
   }
 
@@ -108,18 +106,13 @@ public class SearchCollectorManager
     return new SearcherResult(hits, collectorResults);
   }
 
-  /** Get collector info for retrieving query top docs */
-  public DocCollector getDocCollector() {
-    return docCollector;
-  }
-
   /** Get collector manager implementation used to rank docs */
   public CollectorManager<? extends Collector, ? extends TopDocs> getDocCollectorManger() {
     return docCollectorManger;
   }
 
   /** Collector level class. There will be one Collector for each query thread. */
-  public class SearchCollector implements Collector {
+  public class SearchCollector implements Collector, NotifyCollectionCompleted {
 
     private final Collector hitCollector;
     private final List<Collector> additionalCollectors;
@@ -161,6 +154,11 @@ public class SearchCollectorManager
         }
       }
       return scoreMode;
+    }
+
+    @Override
+    public void collectionCompleted() {
+      NotifyCollectionCompleted.maybeNotify(hitCollector);
     }
 
     /** Segment level class. */

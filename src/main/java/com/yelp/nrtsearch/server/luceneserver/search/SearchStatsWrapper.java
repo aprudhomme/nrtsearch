@@ -141,7 +141,7 @@ public class SearchStatsWrapper<C extends Collector>
   /**
    * Stats collector that wraps another collector. Records if collection was gracefully terminated.
    */
-  class SearchStatsCollectorWrapper implements Collector {
+  class SearchStatsCollectorWrapper implements Collector, NotifyCollectionCompleted {
 
     private final C collector;
     private final List<SearchStatsLeafCollectorWrapper> leafCollectors = new ArrayList<>();
@@ -169,6 +169,11 @@ public class SearchStatsWrapper<C extends Collector>
     @Override
     public ScoreMode scoreMode() {
       return collector.scoreMode();
+    }
+
+    @Override
+    public void collectionCompleted() {
+      NotifyCollectionCompleted.maybeNotify(collector);
     }
   }
 

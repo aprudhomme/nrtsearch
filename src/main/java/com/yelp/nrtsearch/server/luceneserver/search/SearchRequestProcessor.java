@@ -45,6 +45,7 @@ import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.AdditionalCollectorManager;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreator;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreatorContext;
+import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorWrapper;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.DocCollector;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.HitCountCollector;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.LargeNumHitsCollector;
@@ -52,6 +53,7 @@ import com.yelp.nrtsearch.server.luceneserver.search.collectors.MyTopSuggestDocs
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.RelevanceCollector;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.SortFieldCollector;
 import com.yelp.nrtsearch.server.utils.ScriptParamsUtils;
+import com.yelp.nrtsearch.server.utils.StructJsonUtils;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,8 +70,10 @@ import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.QueryParserBase;
 import org.apache.lucene.queryparser.simple.SimpleQueryParser;
 import org.apache.lucene.search.Collector;
+import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.util.QueryBuilder;
 
 /**
@@ -374,22 +378,34 @@ public class SearchRequestProcessor {
                             .createCollectorManager(
                                 collectorCreatorContext, e.getKey(), e.getValue()))
                 .collect(Collectors.toList());
+    List<CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>
+        collectorWrappers =
+            buildCollectorWrappers(
+                collectorCreatorContext, searchRequest.getCollectorWrappersList());
 
     DocCollector docCollector;
     if (searchRequest.getQuery().hasCompletionQuery()) {
-      docCollector = new MyTopSuggestDocsCollector(collectorCreatorContext, additionalCollectors);
+      docCollector =
+          new MyTopSuggestDocsCollector(
+              collectorCreatorContext, additionalCollectors, collectorWrappers);
     } else if (searchRequest.getQuerySort().getFields().getSortedFieldsList().isEmpty()) {
       if (hasLargeNumHits(searchRequest)) {
-        docCollector = new LargeNumHitsCollector(collectorCreatorContext, additionalCollectors);
+        docCollector =
+            new LargeNumHitsCollector(
+                collectorCreatorContext, additionalCollectors, collectorWrappers);
       } else {
-        docCollector = new RelevanceCollector(collectorCreatorContext, additionalCollectors);
+        docCollector =
+            new RelevanceCollector(
+                collectorCreatorContext, additionalCollectors, collectorWrappers);
       }
     } else {
-      docCollector = new SortFieldCollector(collectorCreatorContext, additionalCollectors);
+      docCollector =
+          new SortFieldCollector(collectorCreatorContext, additionalCollectors, collectorWrappers);
     }
     // If we don't need hits, just count recalled docs
     if (docCollector.getNumHitsToCollect() == 0) {
-      docCollector = new HitCountCollector(collectorCreatorContext, additionalCollectors);
+      docCollector =
+          new HitCountCollector(collectorCreatorContext, additionalCollectors, collectorWrappers);
     }
     return docCollector;
   }
@@ -399,6 +415,22 @@ public class SearchRequestProcessor {
     return searchRequest.hasQuery()
         && searchRequest.getQuery().getQueryNodeCase()
             == com.yelp.nrtsearch.server.grpc.Query.QueryNodeCase.QUERYNODE_NOT_SET;
+  }
+
+  private static List<
+          CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>
+      buildCollectorWrappers(
+          CollectorCreatorContext context,
+          List<com.yelp.nrtsearch.server.grpc.CollectorWrapper> grpcCollectorWrappers) {
+    return grpcCollectorWrappers.stream()
+        .map(
+            wrapper ->
+                CollectorCreator.getInstance()
+                    .getCollectorWrapper(
+                        wrapper.getName(),
+                        context,
+                        StructJsonUtils.convertStructToMap(wrapper.getParams())))
+        .collect(Collectors.toList());
   }
 
   /** Parses rescorers defined in this search request. */

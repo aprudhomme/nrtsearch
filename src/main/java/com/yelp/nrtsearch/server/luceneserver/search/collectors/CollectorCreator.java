@@ -32,6 +32,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.lucene.search.CollectorManager;
+import org.apache.lucene.search.TopDocs;
 
 /**
  * Helper class for creating instances of {@link AdditionalCollectorManager} from the grpc {@link
@@ -49,7 +51,35 @@ public class CollectorCreator {
                       ? extends org.apache.lucene.search.Collector, CollectorResult>>>
       collectorsMap = new HashMap<>();
 
+  private final Map<
+          String,
+          CollectorWrapperProvider<
+              ? extends
+                  CollectorWrapper<
+                      ? extends
+                          CollectorManager<
+                              ? extends org.apache.lucene.search.Collector, ? extends TopDocs>>>>
+      collectorWrapperMap = new HashMap<>();
+
   private CollectorCreator(LuceneServerConfiguration configuration) {}
+
+  public CollectorWrapper<
+          ? extends
+              CollectorManager<? extends org.apache.lucene.search.Collector, ? extends TopDocs>>
+      getCollectorWrapper(
+          String name, CollectorCreatorContext context, Map<String, Object> params) {
+    CollectorWrapperProvider<
+            ? extends
+                CollectorWrapper<
+                    ? extends
+                        CollectorManager<
+                            ? extends org.apache.lucene.search.Collector, ? extends TopDocs>>>
+        provider = collectorWrapperMap.get(name);
+    if (provider == null) {
+      throw new IllegalArgumentException("Unknown collector wrapper: " + name);
+    }
+    return provider.get(context, params);
+  }
 
   /**
    * Create {@link AdditionalCollectorManager} for the given {@link Collector} definition message.
@@ -144,6 +174,32 @@ public class CollectorCreator {
     collectorsMap.put(name, collector);
   }
 
+  private void registerWrappers(
+      Map<
+              String,
+              CollectorWrapperProvider<
+                  CollectorWrapper<
+                      ? extends
+                          CollectorManager<
+                              ? extends org.apache.lucene.search.Collector, ? extends TopDocs>>>>
+          collectorWrappers) {
+    collectorWrappers.forEach(this::registerWrapper);
+  }
+
+  private void registerWrapper(
+      String name,
+      CollectorWrapperProvider<
+              CollectorWrapper<
+                  ? extends
+                      CollectorManager<
+                          ? extends org.apache.lucene.search.Collector, ? extends TopDocs>>>
+          collectorWrapper) {
+    if (collectorWrapperMap.containsKey(name)) {
+      throw new IllegalArgumentException("Collector wrapper " + name + " already exists");
+    }
+    collectorWrapperMap.put(name, collectorWrapper);
+  }
+
   /**
    * Initialize singleton instance of {@link CollectorCreator}. Registers any standard tasks and any
    * additional tasks provided by {@link com.yelp.nrtsearch.server.grpc.PluginCollector}s.
@@ -157,6 +213,7 @@ public class CollectorCreator {
       if (plugin instanceof CollectorPlugin) {
         CollectorPlugin collectorPlugin = (CollectorPlugin) plugin;
         instance.register(collectorPlugin.getCollectors());
+        instance.registerWrappers(collectorPlugin.getCollectorWrappers());
       }
     }
   }

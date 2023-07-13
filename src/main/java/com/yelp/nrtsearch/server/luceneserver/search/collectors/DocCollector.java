@@ -43,6 +43,9 @@ public abstract class DocCollector {
   private final IndexState indexState;
   private final List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
       additionalCollectors;
+  private final List<
+          CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>
+      collectorWrappers;
   private final int numHitsToCollect;
   private boolean hadTimeout = false;
   private boolean terminatedEarly = false;
@@ -58,10 +61,13 @@ public abstract class DocCollector {
   public DocCollector(
       CollectorCreatorContext context,
       List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>>
-          additionalCollectors) {
+          additionalCollectors,
+      List<CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>>
+          collectorWrappers) {
     this.request = context.getRequest();
     this.indexState = context.getIndexState();
     this.additionalCollectors = additionalCollectors;
+    this.collectorWrappers = collectorWrappers;
 
     // determine how many hits to collect based on request, facets and rescore window
     int collectHits = request.getTopHits();
@@ -87,7 +93,13 @@ public abstract class DocCollector {
   public CollectorManager<? extends Collector, SearcherResult> getWrappedManager() {
     List<AdditionalCollectorManager<? extends Collector, ? extends CollectorResult>> collectors =
         wrappedCollectors();
-    SearchCollectorManager searchCollectorManager = new SearchCollectorManager(this, collectors);
+    CollectorManager<? extends Collector, ? extends TopDocs> docCollectorManager = getManager();
+    for (CollectorWrapper<? extends CollectorManager<? extends Collector, ? extends TopDocs>>
+        collectorWrapper : collectorWrappers) {
+      docCollectorManager = collectorWrapper.wrap(docCollectorManager);
+    }
+    SearchCollectorManager searchCollectorManager =
+        new SearchCollectorManager(docCollectorManager, collectors);
     return wrapManager(searchCollectorManager);
   }
 

@@ -137,7 +137,7 @@ public class SearchCutoffWrapper<C extends Collector>
    * {@link Collector} implementation that wraps another collector and checks if the operation has
    * timed out before providing each segment collector.
    */
-  class TimeoutCollectorWrapper implements Collector {
+  class TimeoutCollectorWrapper implements Collector, NotifyCollectionCompleted {
 
     private final C collector;
     private boolean hadTimeout = false;
@@ -171,6 +171,11 @@ public class SearchCutoffWrapper<C extends Collector>
           throw new CollectionTerminatedException();
         }
       }
+    }
+
+    @Override
+    public void collectionCompleted() {
+      NotifyCollectionCompleted.maybeNotify(collector);
     }
 
     /**
