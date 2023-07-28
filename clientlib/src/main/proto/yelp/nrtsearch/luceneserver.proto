@@ -182,6 +182,14 @@ service LuceneServer {
     };
     }
 
+    /* Search V2 */
+    rpc searchV3 (SearchRequest) returns (SearchResponse) {
+        option (google.api.http) = {
+            post: "/v3/search"
+            body: "*"
+        };
+    }
+
     /* Delete documents */
     rpc delete (AddDocumentRequest) returns (AddDocumentResponse) {
         option (google.api.http) = {

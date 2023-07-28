@@ -41,6 +41,8 @@ import com.yelp.nrtsearch.server.config.QueryCacheConfig;
 import com.yelp.nrtsearch.server.luceneserver.*;
 import com.yelp.nrtsearch.server.luceneserver.AddDocumentHandler.DocumentIndexer;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutor;
 import com.yelp.nrtsearch.server.luceneserver.custom.request.CustomRequestProcessor;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.highlights.HighlighterService;
@@ -51,6 +53,7 @@ import com.yelp.nrtsearch.server.luceneserver.index.handlers.SettingsV2Handler;
 import com.yelp.nrtsearch.server.luceneserver.rescore.RescorerCreator;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.search.FetchTaskCreator;
+import com.yelp.nrtsearch.server.luceneserver.search.SearchV3Handler;
 import com.yelp.nrtsearch.server.luceneserver.search.cache.NrtQueryCache;
 import com.yelp.nrtsearch.server.luceneserver.search.collectors.CollectorCreator;
 import com.yelp.nrtsearch.server.luceneserver.similarity.SimilarityCreator;
@@ -1051,6 +1054,7 @@ public class LuceneServer {
     @Override
     public void search(
         SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
+      System.out.println("V1");
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
@@ -1102,6 +1106,7 @@ public class LuceneServer {
     @Override
     public void searchV2(
         SearchRequest searchRequest, StreamObserver<Any> searchResponseStreamObserver) {
+      System.out.println("V2");
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
@@ -1110,6 +1115,61 @@ public class LuceneServer {
         SearchResponse reply = searchHandler.handle(indexState, searchRequest);
         searchResponseStreamObserver.onNext(Any.pack(reply));
         searchResponseStreamObserver.onCompleted();
+      } catch (IOException e) {
+        logger.warn(
+            "error while trying to read index state dir for indexName: "
+                + searchRequest.getIndexName(),
+            e);
+        searchResponseStreamObserver.onError(
+            Status.INTERNAL
+                .withDescription(
+                    "error while trying to read index state dir for indexName: "
+                        + searchRequest.getIndexName())
+                .augmentDescription(e.getMessage())
+                .withCause(e)
+                .asRuntimeException());
+      } catch (Exception e) {
+        String searchRequestJson = null;
+        try {
+          searchRequestJson = protoMessagePrinter.print(searchRequest);
+        } catch (InvalidProtocolBufferException ignored) {
+          // Ignore as invalid proto would have thrown an exception earlier
+        }
+        logger.warn(
+            String.format(
+                "error while trying to execute search for index %s: request: %s",
+                searchRequest.getIndexName(), searchRequestJson),
+            e);
+        if (e instanceof StatusRuntimeException) {
+          searchResponseStreamObserver.onError(e);
+        } else {
+          searchResponseStreamObserver.onError(
+              Status.UNKNOWN
+                  .withDescription(
+                      String.format(
+                          "error while trying to execute search for index %s. check logs for full searchRequest.",
+                          searchRequest.getIndexName()))
+                  .augmentDescription(e.getMessage())
+                  .asRuntimeException());
+        }
+      }
+    }
+
+    private static final TaskExecutor taskExecutor = new TaskExecutor(10);
+
+    @Override
+    public void searchV3(
+        SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
+      System.out.println("V3");
+      try {
+        IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
+        setResponseCompression(
+            searchRequest.getResponseCompression(), searchResponseStreamObserver);
+        RequestExecutor<SearchResponse> requestExecutor = new RequestExecutor<>(taskExecutor, searchResponseStreamObserver);
+        requestExecutor.execute(() -> SearchV3Handler.executeSearch(indexState, searchRequest, requestExecutor));
+        //SearchResponse reply = SearchV3Handler.executeSearch(indexState, searchRequest);
+        //searchResponseStreamObserver.onNext(reply);
+        //searchResponseStreamObserver.onCompleted();
       } catch (IOException e) {
         logger.warn(
             "error while trying to read index state dir for indexName: "
