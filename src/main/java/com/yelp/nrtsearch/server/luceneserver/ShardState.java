@@ -1082,11 +1082,11 @@ public class ShardState implements Closeable {
           Thread.currentThread().interrupt();
         } catch (StatusRuntimeException e) {
           /*logger.warn(
-              String.format(
-                  "Replica host: %s, binary port: %s cannot reach primary: %s",
-                  nrtReplicaNode.getHostPort().getHostName(),
-                  nrtReplicaNode.getHostPort().getPort(),
-                  nrtReplicaNode.getPrimaryAddress()));*/
+          String.format(
+              "Replica host: %s, binary port: %s cannot reach primary: %s",
+              nrtReplicaNode.getHostPort().getHostName(),
+              nrtReplicaNode.getHostPort().getPort(),
+              nrtReplicaNode.getPrimaryAddress()));*/
         }
       }
     }

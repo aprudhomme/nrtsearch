@@ -300,7 +300,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    * @throws ExecutionException on error when performing parallel fetch
    * @throws InterruptedException if parallel fetch is interrupted
    */
-  private void fetchFields(SearchContext searchContext)
+  public static void fetchFields(SearchContext searchContext)
       throws IOException, ExecutionException, InterruptedException {
     if (searchContext.getResponseBuilder().getHitsBuilderList().isEmpty()) {
       return;
@@ -456,7 +456,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    * @param context search context
    * @param hits hits from query
    */
-  private static void setResponseHits(SearchContext context, TopDocs hits) {
+  public static void setResponseHits(SearchContext context, TopDocs hits) {
     TotalHits totalHits =
         TotalHits.newBuilder()
             .setRelation(TotalHits.Relation.valueOf(hits.totalHits.relation.name()))
@@ -1058,7 +1058,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    *
    * @return found exception instance or null
    */
-  private static CollectionTimeoutException findTimeoutException(Throwable e) {
+  public static CollectionTimeoutException findTimeoutException(Throwable e) {
     if (e instanceof CollectionTimeoutException) {
       return (CollectionTimeoutException) e;
     }

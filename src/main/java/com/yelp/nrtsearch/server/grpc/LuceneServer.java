@@ -42,7 +42,7 @@ import com.yelp.nrtsearch.server.luceneserver.*;
 import com.yelp.nrtsearch.server.luceneserver.AddDocumentHandler.DocumentIndexer;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
-import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutor;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutorV2;
 import com.yelp.nrtsearch.server.luceneserver.custom.request.CustomRequestProcessor;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.highlights.HighlighterService;
@@ -1155,7 +1155,8 @@ public class LuceneServer {
       }
     }
 
-    private static final TaskExecutor taskExecutor = new TaskExecutor(10);
+    private static final TaskExecutorV2<Long> taskExecutor =
+        new TaskExecutorV2<>(10, Long::compareTo, 1024);
 
     @Override
     public void searchV3(
@@ -1165,11 +1166,17 @@ public class LuceneServer {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
             searchRequest.getResponseCompression(), searchResponseStreamObserver);
-        RequestExecutor<SearchResponse> requestExecutor = new RequestExecutor<>(taskExecutor, searchResponseStreamObserver);
-        requestExecutor.execute(() -> SearchV3Handler.executeSearch(indexState, searchRequest, requestExecutor));
-        //SearchResponse reply = SearchV3Handler.executeSearch(indexState, searchRequest);
-        //searchResponseStreamObserver.onNext(reply);
-        //searchResponseStreamObserver.onCompleted();
+        RequestExecutor<SearchResponse, Long> requestExecutor =
+            new RequestExecutor<>(
+                taskExecutor, searchResponseStreamObserver, System.currentTimeMillis());
+        requestExecutor.execute(
+            () -> {
+              try {
+                SearchV3Handler.executeSearch(indexState, searchRequest, requestExecutor);
+              } catch (IOException | ExecutionException | InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+            });
       } catch (IOException e) {
         logger.warn(
             "error while trying to read index state dir for indexName: "

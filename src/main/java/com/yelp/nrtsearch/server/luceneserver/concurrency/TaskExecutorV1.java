@@ -33,15 +33,15 @@ import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class TaskExecutor {
-  private static final Logger logger = LoggerFactory.getLogger(TaskExecutor.class);
+public class TaskExecutorV1 {
+  private static final Logger logger = LoggerFactory.getLogger(TaskExecutorV1.class);
   private final TaskThreadPool taskThreadPool;
   private final PriorityQueue<TaskGroup<?>> pendingTaskQueue;
   private final Comparator<TaskGroup<?>> queueComparator;
   private final int maxActiveTasks;
   private int activeTasks = 0;
 
-  public TaskExecutor(int numThreads) {
+  public TaskExecutorV1(int numThreads) {
     taskThreadPool =
         new TaskThreadPool(
             numThreads,
@@ -123,8 +123,8 @@ public class TaskExecutor {
 
       if (activeTasks == 0) {
         if (throwable != null || startedTasks == tasks.size()) {
-            done = true;
-            notifyAll();
+          done = true;
+          notifyAll();
         }
       }
     }
@@ -222,7 +222,8 @@ public class TaskExecutor {
   }
 
   private class TaskThreadPool extends ThreadPoolExecutor {
-    private final ConcurrentHashMap<Callable<?>, TaskGroup<?>> taskMapping = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Callable<?>, TaskGroup<?>> taskMapping =
+        new ConcurrentHashMap<>();
 
     public TaskThreadPool(
         int corePoolSize,
@@ -248,7 +249,7 @@ public class TaskExecutor {
     @Override
     protected void afterExecute(Runnable r, Throwable t) {
       System.out.println("afterExecute: runnable: " + r + ", throwable: " + t);
-      synchronized (TaskExecutor.this) {
+      synchronized (TaskExecutorV1.this) {
         activeTasks--;
         super.afterExecute(r, t);
         if (!(r instanceof RunnableFutureWrapper)) {
@@ -272,8 +273,15 @@ public class TaskExecutor {
     @Override
     protected <U> RunnableFuture<U> newTaskFor(Callable<U> callable) {
       RunnableFuture<U> rf = super.newTaskFor(callable);
-      RunnableFutureWrapper<U> wrappedFuture = new RunnableFutureWrapper<>(rf, (TaskGroup<U>) taskMapping.remove(callable));
-      System.out.println("newTaskFor: callable: " + callable + ", runnableFuture: " + rf + ", wrapped: " + wrappedFuture);
+      RunnableFutureWrapper<U> wrappedFuture =
+          new RunnableFutureWrapper<>(rf, (TaskGroup<U>) taskMapping.remove(callable));
+      System.out.println(
+          "newTaskFor: callable: "
+              + callable
+              + ", runnableFuture: "
+              + rf
+              + ", wrapped: "
+              + wrappedFuture);
       return wrappedFuture;
     }
   }
