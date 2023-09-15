@@ -25,7 +25,6 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
-import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,11 +32,38 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class TaskExecutorV2<T> {
-  private static final Logger logger = LoggerFactory.getLogger(TaskExecutorV2.class);
+public class TaskExecutor<T> {
+  private static final Logger logger = LoggerFactory.getLogger(TaskExecutor.class);
   private final TaskThreadPool taskThreadPool;
+  private final PriorityBlockingQueue<Runnable> threadPoolQueue;
   private final int maxActiveRequests;
   private final AtomicInteger activeRequests = new AtomicInteger();
+  private final LoadCalcThread loadCalcThread;
+  private volatile double loadAvg = 0;
+
+  private class LoadCalcThread extends Thread {
+    private final double EXP_1 = Math.exp(-5.0 / 60.0);
+
+    @Override
+    public void run() {
+      // TODO cleanup thread on close
+      while (true) {
+        long active = taskThreadPool.getActiveCount() + threadPoolQueue.size();
+        double currentLA = loadAvg;
+        currentLA *= EXP_1;
+        currentLA += active * (1.0 - EXP_1);
+        loadAvg = currentLA;
+        // TODO publish metrics
+        System.out.println("Load Avg: " + loadAvg);
+
+        try {
+          Thread.sleep(5000);
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+  }
 
   interface Task {
     void start();
@@ -126,7 +152,8 @@ public class TaskExecutorV2<T> {
         }
       } else {
         try {
-          resultsList.add(id, ((FutureTask<V>) r).get());
+          V result = ((FutureTask<V>) r).get();
+          resultsList.set(id, result);
         } catch (InterruptedException | ExecutionException e) {
           if (error == null) {
             error = e;
@@ -144,7 +171,7 @@ public class TaskExecutorV2<T> {
         int nextId = startedSubTasks.getAndIncrement();
         if (nextId < tasks.size()) {
           taskThreadPool.execute(
-              new TaskRunnable<>(new FutureTask<>(tasks.get(id)), priority, this, id));
+              new TaskRunnable<>(new FutureTask<>(tasks.get(nextId)), priority, this, nextId));
         }
       }
     }
@@ -173,20 +200,26 @@ public class TaskExecutorV2<T> {
     }
   }
 
-  public TaskExecutorV2(int numThreads, Comparator<T> queueComparator, int maxActiveRequests) {
+  public TaskExecutor(int numThreads, Comparator<T> queueComparator, int maxActiveRequests) {
     this.maxActiveRequests = maxActiveRequests;
+    this.threadPoolQueue =
+        new PriorityBlockingQueue<>(
+            numThreads,
+            Comparator.comparing(runnable -> ((TaskRunnable<T>) runnable).priority, queueComparator)
+                .thenComparingInt(runnable -> ((TaskRunnable<T>) runnable).id));
     this.taskThreadPool =
         new TaskThreadPool(
             numThreads,
             numThreads,
             0,
             TimeUnit.SECONDS,
-            new PriorityBlockingQueue<>(
-                numThreads,
-                Comparator.comparing(
-                        runnable -> ((TaskRunnable<T>) runnable).priority, queueComparator)
-                    .thenComparingInt(runnable -> ((TaskRunnable<T>) runnable).id)),
+            threadPoolQueue,
             (r, e) -> logger.error("Thread pool rejected task"));
+
+    loadCalcThread = new LoadCalcThread();
+    loadCalcThread.setName("LoadAvgCalc");
+    loadCalcThread.setDaemon(true);
+    loadCalcThread.start();
   }
 
   public void startRequest() {
@@ -214,7 +247,7 @@ public class TaskExecutorV2<T> {
       Runnable onComplete,
       Consumer<Throwable> onError) {
     Task task =
-        new MultiCallableTask<V>(tasks, priority, nextTask, maxParallelism, onComplete, onError);
+        new MultiCallableTask<>(tasks, priority, nextTask, maxParallelism, onComplete, onError);
     task.start();
   }
 
@@ -235,23 +268,13 @@ public class TaskExecutorV2<T> {
 
     @Override
     protected void beforeExecute(Thread t, Runnable r) {
-      System.out.println("beforeExecute: thread: " + t + ", runnable: " + r);
       super.beforeExecute(t, r);
     }
 
     @Override
     protected void afterExecute(Runnable r, Throwable t) {
-      System.out.println("afterExecute: runnable: " + r + ", throwable: " + t);
       TaskRunnable<?> taskRunnable = (TaskRunnable<?>) r;
       taskRunnable.taskCompleted(t);
-    }
-
-    @Override
-    protected <U> RunnableFuture<U> newTaskFor(Callable<U> callable) {
-      RunnableFuture<U> rf = super.newTaskFor(callable);
-      System.out.println(
-          "newTaskFor: callable: " + callable + ", runnableFuture: " + rf + ", wrapped: " + null);
-      return null;
     }
   }
 }

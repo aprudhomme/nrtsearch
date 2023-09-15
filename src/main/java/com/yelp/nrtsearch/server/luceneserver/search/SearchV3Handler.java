@@ -29,9 +29,9 @@ import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Diagnostics;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.SearchState;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
+import com.yelp.nrtsearch.server.luceneserver.MyIndexSearcher;
 import com.yelp.nrtsearch.server.luceneserver.ShardState;
 import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
-import com.yelp.nrtsearch.server.luceneserver.facet.DrillSidewaysImpl;
 import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.innerhit.InnerHitFetchTask;
 import com.yelp.nrtsearch.server.luceneserver.rescore.RescoreTask;
@@ -42,7 +42,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import org.apache.lucene.facet.DrillDownQuery;
-import org.apache.lucene.facet.DrillSideways;
+import org.apache.lucene.facet.DrillSidewaysImpl;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.search.Explanation;
@@ -61,11 +61,15 @@ public class SearchV3Handler {
       SearchRequest searchRequest,
       RequestExecutor<SearchResponse, Long> requestExecutor)
       throws IOException, ExecutionException, InterruptedException {
+    // TODO make configurable
+    int maxParallelism = 4;
     var diagnostics = SearchResponse.Diagnostics.newBuilder();
 
-    ProfileResult.Builder profileResultBuilder = null;
+    final ProfileResult.Builder profileResultBuilder;
     if (searchRequest.getProfile()) {
       profileResultBuilder = ProfileResult.newBuilder();
+    } else {
+      profileResultBuilder = null;
     }
 
     SearchContext searchContext;
@@ -78,8 +82,6 @@ public class SearchV3Handler {
 
     long searchStartTime = System.nanoTime();
 
-    SearcherResult searcherResult = null;
-    TopDocs hits;
     if (!searchRequest.getFacetsList().isEmpty()) {
       if (!(searchContext.getQuery() instanceof DrillDownQuery)) {
         throw new IllegalArgumentException("Can only use DrillSideways on DrillDownQuery");
@@ -87,7 +89,7 @@ public class SearchV3Handler {
       DrillDownQuery ddq = (DrillDownQuery) searchContext.getQuery();
 
       List<FacetResult> grpcFacetResults = new ArrayList<>();
-      DrillSideways drillS =
+      DrillSidewaysImpl drillS =
           new DrillSidewaysImpl(
               searchContext.getSearcherAndTaxonomy().searcher,
               indexState.getFacetsConfig(),
@@ -100,10 +102,27 @@ public class SearchV3Handler {
               grpcFacetResults,
               null,
               diagnostics);
-      DrillSideways.ConcurrentDrillSidewaysResult<SearcherResult> concurrentDrillSidewaysResult;
       try {
-        concurrentDrillSidewaysResult =
-            drillS.search(ddq, searchContext.getCollector().getWrappedManager());
+        drillS.search(
+            ddq,
+            searchContext.getCollector().getWrappedManager(),
+            r -> {
+              try {
+                postFacetRecall(
+                    grpcFacetResults,
+                    requestExecutor,
+                    searchRequest,
+                    searchContext,
+                    diagnostics,
+                    profileResultBuilder,
+                    searchStartTime,
+                    r);
+              } catch (IOException | ExecutionException | InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+            },
+            requestExecutor,
+            maxParallelism);
       } catch (RuntimeException | IOException e) {
         // Searching with DrillSideways wraps exceptions in a few layers.
         // Try to find if this was caused by a timeout, if so, re-wrap
@@ -114,26 +133,70 @@ public class SearchV3Handler {
         }
         throw e;
       }
-      searcherResult = concurrentDrillSidewaysResult.collectorResult;
-      hits = searcherResult.getTopDocs();
-      searchContext.getResponseBuilder().addAllFacetResult(grpcFacetResults);
-      searchContext
-          .getResponseBuilder()
-          .addAllFacetResult(
-              FacetTopDocs.facetTopDocsSample(
-                  hits,
-                  searchRequest.getFacetsList(),
-                  indexState,
-                  searchContext.getSearcherAndTaxonomy().searcher,
-                  diagnostics));
     } else {
-      searcherResult =
-          searchContext
-              .getSearcherAndTaxonomy()
-              .searcher
-              .search(searchContext.getQuery(), searchContext.getCollector().getWrappedManager());
-      hits = searcherResult.getTopDocs();
+      ((MyIndexSearcher) searchContext.getSearcherAndTaxonomy().searcher)
+          .search(
+              searchContext.getQuery(),
+              searchContext.getCollector().getWrappedManager(),
+              r -> {
+                try {
+                  postRecall(
+                      requestExecutor,
+                      searchRequest,
+                      searchContext,
+                      diagnostics,
+                      profileResultBuilder,
+                      searchStartTime,
+                      r);
+                } catch (IOException | ExecutionException | InterruptedException e) {
+                  throw new RuntimeException(e);
+                }
+              },
+              requestExecutor,
+              maxParallelism);
     }
+  }
+
+  private static void postFacetRecall(
+      List<FacetResult> grpcFacetResults,
+      RequestExecutor<SearchResponse, Long> requestExecutor,
+      SearchRequest searchRequest,
+      SearchContext searchContext,
+      Diagnostics.Builder diagnostics,
+      ProfileResult.Builder profileResultBuilder,
+      long searchStartTime,
+      SearcherResult searcherResult)
+      throws IOException, ExecutionException, InterruptedException {
+    searchContext.getResponseBuilder().addAllFacetResult(grpcFacetResults);
+    searchContext
+        .getResponseBuilder()
+        .addAllFacetResult(
+            FacetTopDocs.facetTopDocsSample(
+                searcherResult.getTopDocs(),
+                searchRequest.getFacetsList(),
+                searchContext.getIndexState(),
+                searchContext.getSearcherAndTaxonomy().searcher,
+                diagnostics));
+    postRecall(
+        requestExecutor,
+        searchRequest,
+        searchContext,
+        diagnostics,
+        profileResultBuilder,
+        searchStartTime,
+        searcherResult);
+  }
+
+  private static void postRecall(
+      RequestExecutor<SearchResponse, Long> requestExecutor,
+      SearchRequest searchRequest,
+      SearchContext searchContext,
+      Diagnostics.Builder diagnostics,
+      ProfileResult.Builder profileResultBuilder,
+      long searchStartTime,
+      SearcherResult searcherResult)
+      throws IOException, ExecutionException, InterruptedException {
+    TopDocs hits = searcherResult.getTopDocs();
 
     List<Explanation> explanations = null;
     if (searchRequest.getExplain()) {

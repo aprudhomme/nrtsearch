@@ -15,22 +15,30 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import com.yelp.nrtsearch.server.grpc.SearchResponse;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.PriorityQueue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.CollectionTerminatedException;
 import org.apache.lucene.search.Collector;
+import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.LeafCollector;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.suggest.document.CompletionQuery;
@@ -282,6 +290,61 @@ public class MyIndexSearcher extends IndexSearcher {
           }
         }
       }
+    }
+  }
+
+  public <C extends Collector, T> void search(
+      Query query,
+      CollectorManager<C, T> collectorManager,
+      Consumer<T> resultConsumer,
+      RequestExecutor<SearchResponse, Long> requestExecutor,
+      int maxParallelism)
+      throws IOException {
+    LeafSlice[] leafSlices = getSlices();
+    if (leafSlices.length <= 1) {
+      final C collector = collectorManager.newCollector();
+      search(query, collector);
+      resultConsumer.accept(collectorManager.reduce(Collections.singletonList(collector)));
+    } else {
+      final List<C> collectors = new ArrayList<>(leafSlices.length);
+      ScoreMode scoreMode = null;
+      for (int i = 0; i < leafSlices.length; ++i) {
+        final C collector = collectorManager.newCollector();
+        collectors.add(collector);
+        if (scoreMode == null) {
+          scoreMode = collector.scoreMode();
+        } else if (scoreMode != collector.scoreMode()) {
+          throw new IllegalStateException(
+              "CollectorManager does not always produce collectors with the same score mode");
+        }
+      }
+      if (scoreMode == null) {
+        // no segments
+        scoreMode = ScoreMode.COMPLETE;
+      }
+      query = rewrite(query);
+      final Weight weight = createWeight(query, scoreMode, 1);
+      List<Callable<C>> sliceOps = new ArrayList<>(leafSlices.length);
+      for (int i = 0; i < leafSlices.length - 1; ++i) {
+        final LeafReaderContext[] leaves = leafSlices[i].leaves;
+        final C collector = collectors.get(i);
+        sliceOps.add(
+            () -> {
+              search(Arrays.asList(leaves), weight, collector);
+              return collector;
+            });
+      }
+      requestExecutor.executeMultiAndThen(
+          sliceOps, r -> reduceCollectors(r, collectorManager, resultConsumer), maxParallelism);
+    }
+  }
+
+  private static <C extends Collector, T> void reduceCollectors(
+      List<C> collectors, CollectorManager<C, T> collectorManager, Consumer<T> resultConsumer) {
+    try {
+      resultConsumer.accept(collectorManager.reduce(collectors));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
   }
 }

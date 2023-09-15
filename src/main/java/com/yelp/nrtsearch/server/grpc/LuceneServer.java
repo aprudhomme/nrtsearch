@@ -42,7 +42,7 @@ import com.yelp.nrtsearch.server.luceneserver.*;
 import com.yelp.nrtsearch.server.luceneserver.AddDocumentHandler.DocumentIndexer;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
-import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutorV2;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutor;
 import com.yelp.nrtsearch.server.luceneserver.custom.request.CustomRequestProcessor;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.highlights.HighlighterService;
@@ -1106,7 +1106,6 @@ public class LuceneServer {
     @Override
     public void searchV2(
         SearchRequest searchRequest, StreamObserver<Any> searchResponseStreamObserver) {
-      System.out.println("V2");
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
@@ -1155,13 +1154,13 @@ public class LuceneServer {
       }
     }
 
-    private static final TaskExecutorV2<Long> taskExecutor =
-        new TaskExecutorV2<>(10, Long::compareTo, 1024);
+    // TODO move and make configurable
+    private static final TaskExecutor<Long> taskExecutor =
+        new TaskExecutor<>(16, Long::compareTo, 1024);
 
     @Override
     public void searchV3(
         SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
-      System.out.println("V3");
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(

@@ -13,15 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.yelp.nrtsearch.server.luceneserver.facet;
+package org.apache.lucene.facet;
 
 import com.google.protobuf.ProtocolStringList;
 import com.yelp.nrtsearch.server.grpc.Facet;
 import com.yelp.nrtsearch.server.grpc.NumericRangeType;
+import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Diagnostics;
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
+import com.yelp.nrtsearch.server.luceneserver.MyIndexSearcher;
 import com.yelp.nrtsearch.server.luceneserver.ShardState;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import com.yelp.nrtsearch.server.luceneserver.doc.LoadedDocValues;
+import com.yelp.nrtsearch.server.luceneserver.facet.FilteredSSDVFacetCounts;
 import com.yelp.nrtsearch.server.luceneserver.field.DoubleFieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import com.yelp.nrtsearch.server.luceneserver.field.FloatFieldDef;
@@ -41,13 +45,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.ExecutorService;
-import org.apache.lucene.facet.DrillSideways;
-import org.apache.lucene.facet.FacetResult;
-import org.apache.lucene.facet.Facets;
-import org.apache.lucene.facet.FacetsCollector;
+import java.util.function.Consumer;
 import org.apache.lucene.facet.FacetsCollector.MatchingDocs;
-import org.apache.lucene.facet.FacetsConfig;
-import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.range.DoubleRange;
 import org.apache.lucene.facet.range.DoubleRangeFacetCounts;
 import org.apache.lucene.facet.range.LongRange;
@@ -57,8 +56,10 @@ import org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
 import org.apache.lucene.facet.taxonomy.TaxonomyFacetCounts;
 import org.apache.lucene.facet.taxonomy.TaxonomyReader;
+import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MultiCollectorManager;
 
 public class DrillSidewaysImpl extends DrillSideways {
   private final List<Facet> grpcFacets;
@@ -561,5 +562,49 @@ public class DrillSidewaysImpl extends DrillSideways {
       builder.addAllLabelValues(labelAndValues);
     }
     return builder.build();
+  }
+
+  public <R> void search(
+      final DrillDownQuery query,
+      final CollectorManager<?, R> hitCollectorManager,
+      Consumer<R> resultConsumer,
+      RequestExecutor<SearchResponse, Long> requestExecutor,
+      int maxParallelism)
+      throws IOException {
+    final Map<String, Integer> drillDownDims = query.getDims();
+    if (!drillDownDims.isEmpty()) {
+      // We should never get a query of this type right now. If we need to support it
+      // in the future, it should be possible using the request executor once we decide
+      // how parallelism bounding should work with the main query tasks.
+      throw new UnsupportedOperationException("drillDownDims size expected to be 0");
+    }
+    MultiCollectorManager collectorWithFacets =
+        new MultiCollectorManager(new FacetsCollectorManager(), hitCollectorManager);
+    ((MyIndexSearcher) searcher)
+        .search(
+            query,
+            collectorWithFacets,
+            r -> {
+              try {
+                processMultiCollectorResult(drillDownDims, r, resultConsumer);
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            },
+            requestExecutor,
+            maxParallelism);
+  }
+
+  private <R> void processMultiCollectorResult(
+      Map<String, Integer> drillDownDims, Object[] mainResults, Consumer<R> resultConsumer)
+      throws IOException {
+    FacetsCollector mainFacetsCollector = (FacetsCollector) mainResults[0];
+    R collectorResult = (R) mainResults[1];
+
+    buildFacetsResult(
+        mainFacetsCollector,
+        new FacetsCollector[0],
+        drillDownDims.keySet().toArray(new String[drillDownDims.size()]));
+    resultConsumer.accept(collectorResult);
   }
 }

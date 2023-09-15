@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class RequestExecutor<T, U> {
-  private final TaskExecutorV2<U> taskExecutor;
+  private final TaskExecutor<U> taskExecutor;
   private final StreamObserver<T> responseStreamObserver;
   private final U priority;
   private final ConcurrentLinkedDeque<Runnable> onFinished = new ConcurrentLinkedDeque<>();
@@ -31,7 +31,7 @@ public class RequestExecutor<T, U> {
   private volatile Throwable t = null;
 
   public RequestExecutor(
-      TaskExecutorV2<U> taskExecutor, StreamObserver<T> responseStreamObserver, U priority) {
+      TaskExecutor<U> taskExecutor, StreamObserver<T> responseStreamObserver, U priority) {
     this.taskExecutor = taskExecutor;
     this.responseStreamObserver = responseStreamObserver;
     this.priority = priority;
@@ -80,7 +80,7 @@ public class RequestExecutor<T, U> {
   }
 
   // TODO, if needed
-  // public <V> void executeAndThen(List<Runnable> tasks, Runnable nextTask) {}
+  // public <V> void executeMultiAndThen(List<Runnable> tasks, Runnable nextTask) {}
 
   public <V> void executeMultiAndThen(
       List<Callable<V>> tasks, Consumer<List<V>> nextTask, int maxParallelism) {
