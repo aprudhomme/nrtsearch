@@ -15,7 +15,9 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.rescore;
 
+import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import java.io.IOException;
+import java.util.function.Consumer;
 import org.apache.lucene.search.TopDocs;
 
 /**
@@ -33,4 +35,13 @@ public interface RescoreOperation {
    * @throws IOException on error loading index data
    */
   TopDocs rescore(TopDocs hits, RescoreContext context) throws IOException;
+
+  default void rescore(
+      TopDocs hits,
+      RescoreContext context,
+      RequestExecutor<?, ?> requestExecutor,
+      Consumer<TopDocs> resultConsumer)
+      throws IOException {
+    resultConsumer.accept(rescore(hits, context));
+  }
 }

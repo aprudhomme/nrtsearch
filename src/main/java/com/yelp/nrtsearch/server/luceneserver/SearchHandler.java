@@ -28,6 +28,7 @@ import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.CompositeFieldValue;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.FieldValue;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.SearchState;
 import com.yelp.nrtsearch.server.grpc.TotalHits;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import com.yelp.nrtsearch.server.luceneserver.doc.LoadedDocValues;
 import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.field.BooleanFieldDef;
@@ -218,7 +219,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       setResponseHits(searchContext, hits);
 
       // fill Hit.Builder with requested fields
-      fetchFields(searchContext);
+      fetchFields(searchContext, null, null, -1);
 
       SearchState.Builder searchState = SearchState.newBuilder();
       searchContext.getResponseBuilder().setSearchState(searchState);
@@ -300,9 +301,16 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    * @throws ExecutionException on error when performing parallel fetch
    * @throws InterruptedException if parallel fetch is interrupted
    */
-  public static void fetchFields(SearchContext searchContext)
+  public static void fetchFields(
+      SearchContext searchContext,
+      RequestExecutor<?, ?> requestExecutor,
+      Runnable nextTask,
+      int maxParallelism)
       throws IOException, ExecutionException, InterruptedException {
     if (searchContext.getResponseBuilder().getHitsBuilderList().isEmpty()) {
+      if (requestExecutor != null) {
+        nextTask.run();
+      }
       return;
     }
 
@@ -345,46 +353,75 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
               (fields.size() + min_parallel_fetch_num_fields - 1) / min_parallel_fetch_num_fields);
       List<List<String>> fieldsChunks =
           Lists.partition(fields, (fields.size() + parallelism - 1) / parallelism);
-      List<Future<List<Map<String, CompositeFieldValue>>>> futures = new ArrayList<>();
 
-      // Only parallel by fields here, which should work well for doc values and virtual fields
-      // For row based stored fields, we should do it by hit id.
-      // Stored fields are not widely used for NRTSearch (not recommended for memory usage)
-      for (List<String> fieldsChunk : fieldsChunks) {
-        futures.add(
-            indexState
-                .getFetchThreadPoolExecutor()
-                .submit(
-                    new FillFieldsTask(
-                        indexState,
-                        searchContext.getSearcherAndTaxonomy().searcher,
-                        hitIdToLeaves,
-                        hitBuilders,
-                        fieldsChunk,
-                        searchContext)));
-      }
-      for (Future<List<Map<String, CompositeFieldValue>>> future : futures) {
-        List<Map<String, CompositeFieldValue>> values = future.get();
+      if (requestExecutor == null) {
+        List<Future<List<Map<String, CompositeFieldValue>>>> futures = new ArrayList<>();
+
+        // Only parallel by fields here, which should work well for doc values and virtual fields
+        // For row based stored fields, we should do it by hit id.
+        // Stored fields are not widely used for NRTSearch (not recommended for memory usage)
+        for (List<String> fieldsChunk : fieldsChunks) {
+          futures.add(
+              indexState
+                  .getFetchThreadPoolExecutor()
+                  .submit(
+                      new FillFieldsTask(
+                          indexState,
+                          searchContext.getSearcherAndTaxonomy().searcher,
+                          hitIdToLeaves,
+                          hitBuilders,
+                          fieldsChunk,
+                          searchContext)));
+        }
+        for (Future<List<Map<String, CompositeFieldValue>>> future : futures) {
+          List<Map<String, CompositeFieldValue>> values = future.get();
+          for (int hitIndex = 0; hitIndex < hitBuilders.size(); ++hitIndex) {
+            var hitResponse = hitBuilders.get(hitIndex);
+            hitResponse.putAllFields(values.get(hitIndex));
+          }
+        }
+
+        // execute per hit fetch tasks
         for (int hitIndex = 0; hitIndex < hitBuilders.size(); ++hitIndex) {
           var hitResponse = hitBuilders.get(hitIndex);
-          hitResponse.putAllFields(values.get(hitIndex));
+          LeafReaderContext leaf = hitIdToLeaves.get(hitIndex);
+          if (searchContext.isExplain()) {
+            hitResponse.setExplain(
+                searchContext
+                    .getSearcherAndTaxonomy()
+                    .searcher
+                    .explain(searchContext.getQuery(), hitResponse.getLuceneDocId())
+                    .toString());
+          }
+          searchContext.getFetchTasks().processHit(searchContext, leaf, hitResponse);
         }
+        finishFetchFields(searchContext, requestExecutor, nextTask);
+      } else {
+        List<Callable<List<Map<String, CompositeFieldValue>>>> chunkTasks =
+            new ArrayList<>(fieldsChunks.size());
+        for (List<String> fieldsChunk : fieldsChunks) {
+          chunkTasks.add(
+              new FillFieldsTask(
+                  indexState,
+                  searchContext.getSearcherAndTaxonomy().searcher,
+                  hitIdToLeaves,
+                  hitBuilders,
+                  fieldsChunk,
+                  searchContext));
+        }
+        requestExecutor.executeMultiAndThen(
+            chunkTasks,
+            r -> {
+              try {
+                processParallelFieldFetch(
+                    r, hitBuilders, hitIdToLeaves, searchContext, requestExecutor, nextTask);
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            },
+            maxParallelism);
       }
 
-      // execute per hit fetch tasks
-      for (int hitIndex = 0; hitIndex < hitBuilders.size(); ++hitIndex) {
-        var hitResponse = hitBuilders.get(hitIndex);
-        LeafReaderContext leaf = hitIdToLeaves.get(hitIndex);
-        if (searchContext.isExplain()) {
-          hitResponse.setExplain(
-              searchContext
-                  .getSearcherAndTaxonomy()
-                  .searcher
-                  .explain(searchContext.getQuery(), hitResponse.getLuceneDocId())
-                  .toString());
-        }
-        searchContext.getFetchTasks().processHit(searchContext, leaf, hitResponse);
-      }
     } else if (!parallelFetchByField
         && fetch_thread_pool_size > 1
         && hitBuilders.size() > min_parallel_fetch_num_hits) {
@@ -399,28 +436,84 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       List<List<Hit.Builder>> docChunks =
           Lists.partition(hitBuilders, (hitBuilders.size() + parallelism - 1) / parallelism);
 
-      // process each document chunk in parallel
-      List<Future<?>> futures = new ArrayList<>();
-      for (List<Hit.Builder> docChunk : docChunks) {
-        futures.add(
-            indexState
-                .getFetchThreadPoolExecutor()
-                .submit(new FillDocsTask(searchContext, docChunk)));
-      }
-      for (Future<?> future : futures) {
-        future.get();
+      if (requestExecutor == null) {
+        // process each document chunk in parallel
+        List<Future<?>> futures = new ArrayList<>();
+        for (List<Hit.Builder> docChunk : docChunks) {
+          futures.add(
+              indexState
+                  .getFetchThreadPoolExecutor()
+                  .submit(new FillDocsTask(searchContext, docChunk)));
+        }
+        for (Future<?> future : futures) {
+          future.get();
+        }
+        finishFetchFields(searchContext, requestExecutor, nextTask);
+      } else {
+        List<Runnable> chunkTasks = new ArrayList<>(docChunks.size());
+        for (List<Hit.Builder> docChunk : docChunks) {
+          chunkTasks.add(new FillDocsTask(searchContext, docChunk));
+        }
+        // TODO max parallelism
+        requestExecutor.executeMultiAndThen(
+            chunkTasks,
+            () -> finishFetchFields(searchContext, requestExecutor, nextTask),
+            maxParallelism);
       }
       // no need to run the per hit fetch tasks here, since they were done in the FillDocsTask
     } else {
       // single threaded fetch
       FillDocsTask fillDocsTask = new FillDocsTask(searchContext, hitBuilders);
       fillDocsTask.run();
+      finishFetchFields(searchContext, requestExecutor, nextTask);
+    }
+  }
+
+  private static void processParallelFieldFetch(
+      List<List<Map<String, CompositeFieldValue>>> results,
+      List<Hit.Builder> hitBuilders,
+      List<LeafReaderContext> hitIdToLeaves,
+      SearchContext searchContext,
+      RequestExecutor<?, ?> requestExecutor,
+      Runnable nextTask)
+      throws IOException {
+    for (List<Map<String, CompositeFieldValue>> values : results) {
+      for (int hitIndex = 0; hitIndex < hitBuilders.size(); ++hitIndex) {
+        var hitResponse = hitBuilders.get(hitIndex);
+        hitResponse.putAllFields(values.get(hitIndex));
+      }
     }
 
+    // execute per hit fetch tasks
+    for (int hitIndex = 0; hitIndex < hitBuilders.size(); ++hitIndex) {
+      var hitResponse = hitBuilders.get(hitIndex);
+      LeafReaderContext leaf = hitIdToLeaves.get(hitIndex);
+      if (searchContext.isExplain()) {
+        hitResponse.setExplain(
+            searchContext
+                .getSearcherAndTaxonomy()
+                .searcher
+                .explain(searchContext.getQuery(), hitResponse.getLuceneDocId())
+                .toString());
+      }
+      searchContext.getFetchTasks().processHit(searchContext, leaf, hitResponse);
+    }
+    finishFetchFields(searchContext, requestExecutor, nextTask);
+  }
+
+  private static void finishFetchFields(
+      SearchContext searchContext, RequestExecutor<?, ?> requestExecutor, Runnable nextTask) {
     // execute all hits fetch tasks
-    searchContext
-        .getFetchTasks()
-        .processAllHits(searchContext, searchContext.getResponseBuilder().getHitsBuilderList());
+    try {
+      searchContext
+          .getFetchTasks()
+          .processAllHits(searchContext, searchContext.getResponseBuilder().getHitsBuilderList());
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+    if (requestExecutor != null) {
+      nextTask.run();
+    }
   }
 
   /**

@@ -79,8 +79,11 @@ public class RequestExecutor<T, U> {
     taskExecutor.execute(task, priority, this::taskFinished, this::onError);
   }
 
-  // TODO, if needed
-  // public <V> void executeMultiAndThen(List<Runnable> tasks, Runnable nextTask) {}
+  public void executeMultiAndThen(List<Runnable> tasks, Runnable nextTask, int maxParallelism) {
+    pendingTasks.incrementAndGet();
+    taskExecutor.executeMultiAndThen(
+        tasks, priority, nextTask, maxParallelism, this::taskFinished, this::onError);
+  }
 
   public <V> void executeMultiAndThen(
       List<Callable<V>> tasks, Consumer<List<V>> nextTask, int maxParallelism) {

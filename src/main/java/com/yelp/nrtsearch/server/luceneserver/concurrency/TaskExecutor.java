@@ -99,6 +99,67 @@ public class TaskExecutor<T> {
     }
   }
 
+  private class MultiRunnableTask implements Task {
+    private final List<Runnable> tasks;
+    private final T priority;
+    private final Runnable nextTask;
+    private final int maxParallelism;
+    private final Runnable onComplete;
+    private final Consumer<Throwable> onError;
+    private final AtomicInteger startedSubTasks = new AtomicInteger();
+    private final AtomicInteger completedSubTasks = new AtomicInteger();
+    private volatile Throwable error = null;
+
+    MultiRunnableTask(
+        List<Runnable> tasks,
+        T priority,
+        Runnable nextTask,
+        int maxParallelism,
+        Runnable onComplete,
+        Consumer<Throwable> onError) {
+      this.tasks = tasks;
+      this.priority = priority;
+      this.nextTask = nextTask;
+      this.maxParallelism = maxParallelism;
+      this.onComplete = onComplete;
+      this.onError = onError;
+    }
+
+    @Override
+    public void start() {
+      int tasksToStart = Math.min(tasks.size(), maxParallelism);
+      for (int i = 0; i < tasksToStart; ++i) {
+        int id = startedSubTasks.getAndIncrement();
+        if (id >= tasks.size()) {
+          break;
+        }
+        taskThreadPool.execute(new TaskRunnable<>(tasks.get(id), priority, this, id));
+      }
+    }
+
+    @Override
+    public void taskCompleted(Runnable r, int id, Throwable t) {
+      if (t != null) {
+        if (error == null) {
+          error = t;
+        }
+      }
+      int currentCompletedSubTasks = completedSubTasks.incrementAndGet();
+      if (currentCompletedSubTasks == tasks.size()) {
+        if (error != null) {
+          onError.accept(error);
+        } else {
+          execute(nextTask, priority, onComplete, onError);
+        }
+      } else {
+        int nextId = startedSubTasks.getAndIncrement();
+        if (nextId < tasks.size()) {
+          taskThreadPool.execute(new TaskRunnable<>(tasks.get(nextId), priority, this, nextId));
+        }
+      }
+    }
+  }
+
   private class MultiCallableTask<V> implements Task {
     private final List<Callable<V>> tasks;
     private final T priority;
@@ -236,6 +297,18 @@ public class TaskExecutor<T> {
 
   public void execute(Runnable r, T priority, Runnable onComplete, Consumer<Throwable> onError) {
     Task task = new SingleTask(r, priority, onComplete, onError);
+    task.start();
+  }
+
+  public void executeMultiAndThen(
+      List<Runnable> tasks,
+      T priority,
+      Runnable nextTask,
+      int maxParallelism,
+      Runnable onComplete,
+      Consumer<Throwable> onError) {
+    Task task =
+        new MultiRunnableTask(tasks, priority, nextTask, maxParallelism, onComplete, onError);
     task.start();
   }
 

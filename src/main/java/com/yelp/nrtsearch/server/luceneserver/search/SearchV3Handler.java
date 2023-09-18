@@ -34,12 +34,12 @@ import com.yelp.nrtsearch.server.luceneserver.ShardState;
 import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.innerhit.InnerHitFetchTask;
-import com.yelp.nrtsearch.server.luceneserver.rescore.RescoreTask;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchCutoffWrapper.CollectionTimeoutException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.apache.lucene.facet.DrillDownQuery;
 import org.apache.lucene.facet.DrillSidewaysImpl;
@@ -62,7 +62,8 @@ public class SearchV3Handler {
       RequestExecutor<SearchResponse, Long> requestExecutor)
       throws IOException, ExecutionException, InterruptedException {
     // TODO make configurable
-    int maxParallelism = 4;
+    int maxRecallParallelism = 4;
+    int maxFetchParallelism = 3;
     var diagnostics = SearchResponse.Diagnostics.newBuilder();
 
     final ProfileResult.Builder profileResultBuilder;
@@ -115,6 +116,7 @@ public class SearchV3Handler {
                     searchContext,
                     diagnostics,
                     profileResultBuilder,
+                    maxFetchParallelism,
                     searchStartTime,
                     r);
               } catch (IOException | ExecutionException | InterruptedException e) {
@@ -122,7 +124,7 @@ public class SearchV3Handler {
               }
             },
             requestExecutor,
-            maxParallelism);
+            maxRecallParallelism);
       } catch (RuntimeException | IOException e) {
         // Searching with DrillSideways wraps exceptions in a few layers.
         // Try to find if this was caused by a timeout, if so, re-wrap
@@ -146,6 +148,7 @@ public class SearchV3Handler {
                       searchContext,
                       diagnostics,
                       profileResultBuilder,
+                      maxFetchParallelism,
                       searchStartTime,
                       r);
                 } catch (IOException | ExecutionException | InterruptedException e) {
@@ -153,7 +156,7 @@ public class SearchV3Handler {
                 }
               },
               requestExecutor,
-              maxParallelism);
+              maxRecallParallelism);
     }
   }
 
@@ -164,6 +167,7 @@ public class SearchV3Handler {
       SearchContext searchContext,
       Diagnostics.Builder diagnostics,
       ProfileResult.Builder profileResultBuilder,
+      int maxFetchParallelism,
       long searchStartTime,
       SearcherResult searcherResult)
       throws IOException, ExecutionException, InterruptedException {
@@ -183,6 +187,7 @@ public class SearchV3Handler {
         searchContext,
         diagnostics,
         profileResultBuilder,
+        maxFetchParallelism,
         searchStartTime,
         searcherResult);
   }
@@ -193,6 +198,7 @@ public class SearchV3Handler {
       SearchContext searchContext,
       Diagnostics.Builder diagnostics,
       ProfileResult.Builder profileResultBuilder,
+      int maxFetchParallelism,
       long searchStartTime,
       SearcherResult searcherResult)
       throws IOException, ExecutionException, InterruptedException {
@@ -230,26 +236,140 @@ public class SearchV3Handler {
     long rescoreStartTime = System.nanoTime();
 
     if (!searchContext.getRescorers().isEmpty()) {
-      for (RescoreTask rescorer : searchContext.getRescorers()) {
-        long startNS = System.nanoTime();
-        hits = rescorer.rescore(hits, searchContext);
-        long endNS = System.nanoTime();
-        diagnostics.putRescorersTimeMs(rescorer.getName(), (endNS - startNS) / 1000000.0);
-        DeadlineUtils.checkDeadline("SearchHandler: post " + rescorer.getName(), "SEARCH");
-      }
-      diagnostics.setRescoreTimeMs(((System.nanoTime() - rescoreStartTime) / 1000000.0));
+      searchContext
+          .getRescorers()
+          .get(0)
+          .rescore(
+              hits,
+              searchContext,
+              requestExecutor,
+              new RescorerConsumer(
+                  rescoreStartTime,
+                  System.nanoTime(),
+                  0,
+                  searchContext,
+                  diagnostics,
+                  profileResultBuilder,
+                  maxFetchParallelism,
+                  requestExecutor));
+    } else {
+      executeFetch(
+          hits,
+          searchContext,
+          diagnostics,
+          profileResultBuilder,
+          maxFetchParallelism,
+          requestExecutor);
+    }
+  }
+
+  private static class RescorerConsumer implements Consumer<TopDocs> {
+    private final long rescorePhaseStart;
+    private final long rescorerStart;
+    private final int index;
+    private final SearchContext searchContext;
+    private final Diagnostics.Builder diagnostics;
+    private final ProfileResult.Builder profileResultBuilder;
+    private final int maxFetchParallelism;
+    private final RequestExecutor<SearchResponse, Long> requestExecutor;
+
+    RescorerConsumer(
+        long rescorePhaseStart,
+        long rescorerStart,
+        int index,
+        SearchContext searchContext,
+        Diagnostics.Builder diagnostics,
+        ProfileResult.Builder profileResultBuilder,
+        int maxFetchParallelism,
+        RequestExecutor<SearchResponse, Long> requestExecutor) {
+      this.rescorePhaseStart = rescorePhaseStart;
+      this.rescorerStart = rescorerStart;
+      this.index = index;
+      this.searchContext = searchContext;
+      this.diagnostics = diagnostics;
+      this.profileResultBuilder = profileResultBuilder;
+      this.maxFetchParallelism = maxFetchParallelism;
+      this.requestExecutor = requestExecutor;
     }
 
+    @Override
+    public void accept(TopDocs topDocs) {
+      String rescorerName = searchContext.getRescorers().get(index).getName();
+      diagnostics.putRescorersTimeMs(rescorerName, (System.nanoTime() - rescorerStart) / 1000000.0);
+      DeadlineUtils.checkDeadline("SearchHandler: post " + rescorerName, "SEARCH");
+
+      int nextIndex = index + 1;
+      if (nextIndex == searchContext.getRescorers().size()) {
+        diagnostics.setRescoreTimeMs(((System.nanoTime() - rescorePhaseStart) / 1000000.0));
+        try {
+          executeFetch(
+              topDocs,
+              searchContext,
+              diagnostics,
+              profileResultBuilder,
+              maxFetchParallelism,
+              requestExecutor);
+        } catch (IOException | ExecutionException | InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      } else {
+        try {
+          searchContext
+              .getRescorers()
+              .get(nextIndex)
+              .rescore(
+                  topDocs,
+                  searchContext,
+                  requestExecutor,
+                  new RescorerConsumer(
+                      rescorePhaseStart,
+                      System.nanoTime(),
+                      nextIndex + 1,
+                      searchContext,
+                      diagnostics,
+                      profileResultBuilder,
+                      maxFetchParallelism,
+                      requestExecutor));
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+  }
+
+  private static void executeFetch(
+      TopDocs hits,
+      SearchContext searchContext,
+      Diagnostics.Builder diagnostics,
+      ProfileResult.Builder profileResultBuilder,
+      int maxFetchParallelism,
+      RequestExecutor<SearchResponse, Long> requestExecutor)
+      throws IOException, ExecutionException, InterruptedException {
     long t0 = System.nanoTime();
 
-    hits = getHitsFromOffset(hits, searchContext.getStartHit(), searchContext.getTopHits());
+    final TopDocs finalHits =
+        getHitsFromOffset(hits, searchContext.getStartHit(), searchContext.getTopHits());
 
     // create Hit.Builder for each hit, and populate with lucene doc id and ranking info
-    setResponseHits(searchContext, hits);
+    setResponseHits(searchContext, finalHits);
 
     // fill Hit.Builder with requested fields
-    fetchFields(searchContext);
+    fetchFields(
+        searchContext,
+        requestExecutor,
+        () ->
+            finishSearch(
+                finalHits, searchContext, diagnostics, profileResultBuilder, t0, requestExecutor),
+        maxFetchParallelism);
+  }
 
+  private static void finishSearch(
+      TopDocs hits,
+      SearchContext searchContext,
+      Diagnostics.Builder diagnostics,
+      ProfileResult.Builder profileResultBuilder,
+      long fetchStartNs,
+      RequestExecutor<SearchResponse, Long> requestExecutor) {
     SearchState.Builder searchState = SearchState.newBuilder();
     searchContext.getResponseBuilder().setSearchState(searchState);
     searchState.setTimestamp(searchContext.getTimestampSec());
@@ -267,7 +387,7 @@ public class SearchV3Handler {
     }
     searchContext.getResponseBuilder().setSearchState(searchState);
 
-    diagnostics.setGetFieldsTimeMs(((System.nanoTime() - t0) / 1000000.0));
+    diagnostics.setGetFieldsTimeMs(((System.nanoTime() - fetchStartNs) / 1000000.0));
 
     if (searchContext.getFetchTasks().getHighlightFetchTask() != null) {
       diagnostics.setHighlightTimeMs(

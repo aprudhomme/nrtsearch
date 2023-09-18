@@ -15,8 +15,10 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.rescore;
 
+import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchContext;
 import java.io.IOException;
+import java.util.function.Consumer;
 import org.apache.lucene.search.TopDocs;
 
 /**
@@ -47,6 +49,16 @@ public class RescoreTask {
   public TopDocs rescore(TopDocs hits, SearchContext searchContext) throws IOException {
     RescoreContext context = new RescoreContext(windowSize, searchContext);
     return rescoreOperation.rescore(hits, context);
+  }
+
+  public void rescore(
+      TopDocs hits,
+      SearchContext searchContext,
+      RequestExecutor<?, ?> requestExecutor,
+      Consumer<TopDocs> resultsConsumer)
+      throws IOException {
+    RescoreContext context = new RescoreContext(windowSize, searchContext);
+    rescoreOperation.rescore(hits, context, requestExecutor, resultsConsumer);
   }
 
   public String getName() {
