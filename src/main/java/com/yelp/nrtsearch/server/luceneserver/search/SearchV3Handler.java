@@ -45,7 +45,6 @@ import org.apache.lucene.facet.DrillDownQuery;
 import org.apache.lucene.facet.DrillSidewaysImpl;
 import org.apache.lucene.facet.taxonomy.SearcherTaxonomyManager;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.slf4j.Logger;
@@ -144,7 +143,6 @@ public class SearchV3Handler {
                 try {
                   postRecall(
                       requestExecutor,
-                      searchRequest,
                       searchContext,
                       diagnostics,
                       profileResultBuilder,
@@ -183,7 +181,6 @@ public class SearchV3Handler {
                 diagnostics));
     postRecall(
         requestExecutor,
-        searchRequest,
         searchContext,
         diagnostics,
         profileResultBuilder,
@@ -194,7 +191,6 @@ public class SearchV3Handler {
 
   private static void postRecall(
       RequestExecutor<SearchResponse, Long> requestExecutor,
-      SearchRequest searchRequest,
       SearchContext searchContext,
       Diagnostics.Builder diagnostics,
       ProfileResult.Builder profileResultBuilder,
@@ -203,18 +199,6 @@ public class SearchV3Handler {
       SearcherResult searcherResult)
       throws IOException, ExecutionException, InterruptedException {
     TopDocs hits = searcherResult.getTopDocs();
-
-    List<Explanation> explanations = null;
-    if (searchRequest.getExplain()) {
-      explanations = new ArrayList<>();
-      for (ScoreDoc doc : hits.scoreDocs) {
-        explanations.add(
-            searchContext
-                .getSearcherAndTaxonomy()
-                .searcher
-                .explain(searchContext.getQuery(), doc.doc));
-      }
-    }
 
     // add results from any extra collectors
     searchContext.getResponseBuilder().putAllCollectorResults(searcherResult.getCollectorResults());
