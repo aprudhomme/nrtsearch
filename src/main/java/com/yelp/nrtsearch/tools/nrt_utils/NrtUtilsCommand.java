@@ -23,6 +23,7 @@ import com.yelp.nrtsearch.tools.nrt_utils.incremental.SnapshotIncrementalCommand
 import com.yelp.nrtsearch.tools.nrt_utils.state.GetRemoteStateCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.state.PutRemoteStateCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.state.UpdateGlobalIndexStateCommand;
+import com.yelp.nrtsearch.tools.nrt_utils.vector.RewriteVectorDataCommand;
 import picocli.CommandLine;
 
 @CommandLine.Command(
@@ -34,6 +35,7 @@ import picocli.CommandLine;
       IncrementalDataCleanupCommand.class,
       ListIncrementalSnapshotsCommand.class,
       PutRemoteStateCommand.class,
+      RewriteVectorDataCommand.class,
       RestoreIncrementalCommand.class,
       SnapshotIncrementalCommand.class,
       UpdateGlobalIndexStateCommand.class,
