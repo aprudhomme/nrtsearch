@@ -25,6 +25,7 @@ import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.FieldValue;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.FieldValue.Vector;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.FieldValue.Vector.Builder;
 import com.yelp.nrtsearch.server.luceneserver.geo.GeoPoint;
+import com.yelp.nrtsearch.server.luceneserver.search.GlobalOrdinalLookup;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
@@ -41,6 +42,7 @@ import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.NumericUtils;
 
 /**
@@ -219,7 +221,6 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
           values.add(decoder.apply(docValues.nextValue()));
         }
       }
-      values.trimToSize();
     }
 
     @Override
@@ -461,9 +462,16 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
   public static final class SortedStrings extends LoadedDocValues<String> {
     private final SortedSetDocValues docValues;
     private final ArrayList<String> values = new ArrayList<>();
+    private final GlobalOrdinalLookup ordinalLookup;
+    private LongValues ordinalMapping;
 
-    public SortedStrings(SortedSetDocValues docValues) {
+    public SortedStrings(
+        SortedSetDocValues docValues, GlobalOrdinalLookup ordinalLookup, int segmentIndex) {
       this.docValues = docValues;
+      this.ordinalLookup = ordinalLookup;
+      if (ordinalLookup != null) {
+        this.ordinalMapping = ordinalLookup.getSegmentMapping(segmentIndex);
+      }
     }
 
     @Override
@@ -472,11 +480,15 @@ public abstract class LoadedDocValues<T> extends AbstractList<T> {
       if (docValues.advanceExact(docID)) {
         long ord = docValues.nextOrd();
         while (ord != SortedSetDocValues.NO_MORE_ORDS) {
-          values.add(docValues.lookupOrd(ord).utf8ToString());
+          if (ordinalLookup == null) {
+            values.add(docValues.lookupOrd(ord).utf8ToString());
+          } else {
+            long globalOrd = ordinalMapping.get(ord);
+            values.add(ordinalLookup.lookupGlobalOrdinal(globalOrd));
+          }
           ord = docValues.nextOrd();
         }
       }
-      values.trimToSize();
     }
 
     @Override

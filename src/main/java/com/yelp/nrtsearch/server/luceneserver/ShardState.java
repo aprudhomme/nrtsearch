@@ -529,6 +529,7 @@ public class ShardState implements Closeable {
         }
       }
 
+      long start = System.nanoTime();
       for (Map.Entry<String, GlobalOrdinalable> entry :
           indexState.getEagerFieldGlobalOrdinalFields().entrySet()) {
         if (entry.getValue().usesOrdinals()) {
@@ -536,6 +537,8 @@ public class ShardState implements Closeable {
           entry.getValue().getOrdinalLookup(reader);
         }
       }
+      logger.info(
+          "Field global ordinal build time: " + ((System.nanoTime() - start) / 1000000.0) + "ms");
     }
   }
 

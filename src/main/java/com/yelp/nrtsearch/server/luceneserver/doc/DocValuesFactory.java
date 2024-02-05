@@ -15,6 +15,7 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.doc;
 
+import com.yelp.nrtsearch.server.luceneserver.search.GlobalOrdinalLookup;
 import java.io.IOException;
 import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
@@ -42,7 +43,11 @@ public class DocValuesFactory {
    * @throws IOException if loading doc values fails
    */
   public static LoadedDocValues<?> getBinaryDocValues(
-      String name, DocValuesType docValuesType, LeafReaderContext context) throws IOException {
+      String name,
+      DocValuesType docValuesType,
+      LeafReaderContext context,
+      GlobalOrdinalLookup ordinalLookup)
+      throws IOException {
     switch (docValuesType) {
       case BINARY:
         BinaryDocValues binaryDocValues = DocValues.getBinary(context.reader(), name);
@@ -52,7 +57,7 @@ public class DocValuesFactory {
         return new LoadedDocValues.SingleString(sortedDocValues);
       case SORTED_SET:
         SortedSetDocValues sortedSetDocValues = DocValues.getSortedSet(context.reader(), name);
-        return new LoadedDocValues.SortedStrings(sortedSetDocValues);
+        return new LoadedDocValues.SortedStrings(sortedSetDocValues, ordinalLookup, context.ord);
       default:
         throw new IllegalArgumentException(
             "Unable to load binary doc values for field: "

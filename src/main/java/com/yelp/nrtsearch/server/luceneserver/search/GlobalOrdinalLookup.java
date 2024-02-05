@@ -15,21 +15,33 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.search;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedSetDocValues;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LongValues;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Class to manage global ordinal lookup operations. Provides lookup to convert segment ordinals to
  * global ordinals, and to convert global ordinals to term strings.
  */
 public abstract class GlobalOrdinalLookup {
+  private static final Logger logger = LoggerFactory.getLogger(GlobalOrdinalLookup.class);
   static final LongValues IDENTITY_MAPPING = new IdentityMapping();
+  static final Map<String, Map<BytesRef, String>> fieldStringCache = new ConcurrentHashMap<>();
 
   /**
    * Get segment mapping of local to global ordinals.
@@ -53,10 +65,18 @@ public abstract class GlobalOrdinalLookup {
   public static class SortedLookup extends GlobalOrdinalLookup {
     private final SortedDocValues sortedDocValues;
     private final String field;
+    private final boolean preloadValues;
+    private Int2ObjectMap<String> ordinalValueMap;
 
-    public SortedLookup(IndexReader reader, String field) throws IOException {
+    public SortedLookup(IndexReader reader, String field, boolean preloadValues)
+        throws IOException {
       this.field = field;
+      this.preloadValues = preloadValues;
       sortedDocValues = MultiDocValues.getSortedValues(reader, field);
+      if (preloadValues && sortedDocValues != null) {
+        ordinalValueMap = new Int2ObjectOpenHashMap<>(sortedDocValues.getValueCount());
+        GlobalOrdinalLookup.populateValueMap(field, ordinalValueMap, sortedDocValues);
+      }
     }
 
     @Override
@@ -72,7 +92,11 @@ public abstract class GlobalOrdinalLookup {
       if (sortedDocValues == null) {
         throw new IllegalStateException("No ordinals for field: " + field);
       }
-      return sortedDocValues.lookupOrd((int) ord).utf8ToString();
+      if (!preloadValues) {
+        return sortedDocValues.lookupOrd((int) ord).utf8ToString();
+      } else {
+        return ordinalValueMap.get((int) ord);
+      }
     }
 
     @Override
@@ -85,10 +109,18 @@ public abstract class GlobalOrdinalLookup {
   public static class SortedSetLookup extends GlobalOrdinalLookup {
     private final SortedSetDocValues sortedSetDocValues;
     private final String field;
+    private boolean preloadValues;
+    private Long2ObjectMap<String> ordinalValueMap;
 
-    public SortedSetLookup(IndexReader reader, String field) throws IOException {
+    public SortedSetLookup(IndexReader reader, String field, boolean preloadValues)
+        throws IOException {
       this.field = field;
+      this.preloadValues = preloadValues;
       sortedSetDocValues = MultiDocValues.getSortedSetValues(reader, field);
+      if (preloadValues && sortedSetDocValues != null) {
+        ordinalValueMap = new Long2ObjectOpenHashMap<>((int) sortedSetDocValues.getValueCount());
+        GlobalOrdinalLookup.populateValueMap(field, ordinalValueMap, sortedSetDocValues);
+      }
     }
 
     @Override
@@ -104,13 +136,58 @@ public abstract class GlobalOrdinalLookup {
       if (sortedSetDocValues == null) {
         throw new IllegalStateException("No ordinals for field: " + field);
       }
-      return sortedSetDocValues.lookupOrd(ord).utf8ToString();
+      if (!preloadValues) {
+        return sortedSetDocValues.lookupOrd(ord).utf8ToString();
+      } else {
+        return ordinalValueMap.get(ord);
+      }
     }
 
     @Override
     public long getNumOrdinals() {
       return sortedSetDocValues == null ? 0 : sortedSetDocValues.getValueCount();
     }
+  }
+
+  private static void populateValueMap(
+      String field, Int2ObjectMap<String> valueMap, SortedDocValues docValues) throws IOException {
+    Map<BytesRef, String> stringCache = fieldStringCache.get(field);
+    if (stringCache == null) {
+      stringCache = new HashMap<>();
+      fieldStringCache.put(field, stringCache);
+    }
+
+    for (int i = 0; i < docValues.getValueCount(); ++i) {
+      BytesRef valueBytes = docValues.lookupOrd(i);
+      String cachedValue = stringCache.get(valueBytes);
+      if (cachedValue == null) {
+        cachedValue = valueBytes.utf8ToString();
+        stringCache.put(BytesRef.deepCopyOf(valueBytes), cachedValue);
+      }
+      valueMap.put(i, cachedValue);
+    }
+    logger.info("Cached string values, field: " + field + ", count: " + stringCache.size());
+  }
+
+  private static void populateValueMap(
+      String field, Long2ObjectMap<String> valueMap, SortedSetDocValues docValues)
+      throws IOException {
+    Map<BytesRef, String> stringCache = fieldStringCache.get(field);
+    if (stringCache == null) {
+      stringCache = new HashMap<>();
+      fieldStringCache.put(field, stringCache);
+    }
+
+    for (long i = 0; i < docValues.getValueCount(); ++i) {
+      BytesRef valueBytes = docValues.lookupOrd(i);
+      String cachedValue = stringCache.get(valueBytes);
+      if (cachedValue == null) {
+        cachedValue = valueBytes.utf8ToString();
+        stringCache.put(BytesRef.deepCopyOf(valueBytes), cachedValue);
+      }
+      valueMap.put(i, cachedValue);
+    }
+    logger.info("Cached string values, field: " + field + ", count: " + stringCache.size());
   }
 
   /** Mapping that maps an ordinal to itself. */
