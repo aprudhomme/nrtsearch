@@ -24,7 +24,7 @@ sourceCompatibility = 1.14
 targetCompatibility = 1.14
 
 allprojects {
-    version = '0.29.0-SNAPSHOT'
+    version = '0.30.0-SNAPSHOT'
     group = 'com.yelp.nrtsearch'
 }
 
@@ -73,6 +73,7 @@ dependencies {
     implementation "org.apache.commons:commons-compress:${commonsCompressVersion}"
     implementation "com.amazonaws:aws-java-sdk-core:${awsJavaSdkVersion}"
     implementation "com.amazonaws:aws-java-sdk-s3:${awsJavaSdkVersion}"
+    runtimeOnly "com.amazonaws:aws-java-sdk-sts:${awsJavaSdkVersion}"
     implementation "javax.xml.bind:jaxb-api:2.3.1"
     implementation "com.guicedee.services:guice:${guicedeeVersion}"
     implementation "org.lz4:lz4-java:${project.ext.lz4Version}"

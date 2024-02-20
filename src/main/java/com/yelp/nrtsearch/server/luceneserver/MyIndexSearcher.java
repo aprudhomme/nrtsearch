@@ -15,6 +15,8 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import static org.apache.lucene.facet.DrillSidewaysQueryCheck.isDrillSidewaysQuery;
+
 import com.yelp.nrtsearch.server.grpc.SearchResponse;
 import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import java.io.IOException;
@@ -248,8 +250,7 @@ public class MyIndexSearcher extends IndexSearcher {
   protected void search(List<LeafReaderContext> leaves, Weight weight, Collector collector)
       throws IOException {
     boolean isDrillSidewaysQueryOrCompletionQuery =
-        weight.getQuery() instanceof CompletionQuery
-            || weight.getQuery().toString().contains("DrillSidewaysQuery");
+        weight.getQuery() instanceof CompletionQuery || isDrillSidewaysQuery(weight.getQuery());
     for (LeafReaderContext ctx : leaves) { // search each subreader
       // we force the use of Scorer (not BulkScorer) to make sure
       // that the scorer passed to LeafCollector.setScorer supports
