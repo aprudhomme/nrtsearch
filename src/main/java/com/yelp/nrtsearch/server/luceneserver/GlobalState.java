@@ -24,6 +24,7 @@ import com.yelp.nrtsearch.server.grpc.StartIndexRequest;
 import com.yelp.nrtsearch.server.grpc.StartIndexResponse;
 import com.yelp.nrtsearch.server.grpc.StartIndexV2Request;
 import com.yelp.nrtsearch.server.grpc.StopIndexRequest;
+import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutor;
 import com.yelp.nrtsearch.server.luceneserver.index.IndexStateManager;
 import com.yelp.nrtsearch.server.luceneserver.state.BackendGlobalState;
 import com.yelp.nrtsearch.server.utils.ThreadPoolExecutorFactory;
@@ -65,6 +66,7 @@ public abstract class GlobalState implements Closeable {
   private final ExecutorService indexService;
   private final ExecutorService fetchService;
   private final ThreadPoolExecutor searchThreadPoolExecutor;
+  private final TaskExecutor<Long> taskExecutor;
 
   public static GlobalState createState(LuceneServerConfiguration luceneServerConfiguration)
       throws IOException {
@@ -83,6 +85,11 @@ public abstract class GlobalState implements Closeable {
       Archiver legacyArchiver)
       throws IOException {
     return new BackendGlobalState(luceneServerConfiguration, incArchiver, legacyArchiver);
+  }
+
+  public static TaskExecutor<Long> createTaskExecutor(LuceneServerConfiguration configuration) {
+    int numThreads = configuration.getThreadPoolConfiguration().getMaxSearchingThreads();
+    return new TaskExecutor<>(numThreads, Long::compareTo, 1024);
   }
 
   public Optional<Archiver> getIncArchiver() {
@@ -115,6 +122,7 @@ public abstract class GlobalState implements Closeable {
         ThreadPoolExecutorFactory.getThreadPoolExecutor(
             ThreadPoolExecutorFactory.ExecutorType.FETCH,
             luceneServerConfiguration.getThreadPoolConfiguration());
+    this.taskExecutor = createTaskExecutor(luceneServerConfiguration);
     this.configuration = luceneServerConfiguration;
   }
 
@@ -159,6 +167,7 @@ public abstract class GlobalState implements Closeable {
     } catch (InterruptedException ie) {
       throw new RuntimeException(ie);
     }
+    taskExecutor.close();
   }
 
   /** Get base directory for all index data. */
@@ -270,6 +279,10 @@ public abstract class GlobalState implements Closeable {
 
   public ExecutorService getFetchService() {
     return fetchService;
+  }
+
+  public TaskExecutor<Long> getTaskExecutor() {
+    return taskExecutor;
   }
 
   public String getEphemeralId() {

@@ -118,6 +118,21 @@ public class LiveSettingsV2Command implements Callable<Integer> {
   private String verboseMetrics;
 
   @CommandLine.Option(
+      names = {"--useUnifiedThreadPool"},
+      description = "If unified thread pool should be used for search, must be 'true' or 'false'")
+  private String useUnifiedThreadPool;
+
+  @CommandLine.Option(
+      names = {"--defaultRecallParallelism"},
+      description = "Default recall parallelism with unified thread pool")
+  private Integer defaultRecallParallelism;
+
+  @CommandLine.Option(
+      names = {"--defaultFetchParallelism"},
+      description = "Default fetch parallelism with unified thread pool")
+  private Integer defaultFetchParallelism;
+
+  @CommandLine.Option(
       names = {"--local"},
       description =
           "Applies changes ephemerally to local node only. Response contains local settings only when this flag is used.")
@@ -188,6 +203,18 @@ public class LiveSettingsV2Command implements Callable<Integer> {
       if (verboseMetrics != null) {
         liveSettingsBuilder.setVerboseMetrics(
             BoolValue.newBuilder().setValue(parseBoolean(verboseMetrics)).build());
+      }
+      if (useUnifiedThreadPool != null) {
+        liveSettingsBuilder.setUseUnifiedThreadPool(
+            BoolValue.newBuilder().setValue(parseBoolean(verboseMetrics)).build());
+      }
+      if (defaultRecallParallelism != null) {
+        liveSettingsBuilder.setDefaultRecallParallelism(
+            Int32Value.newBuilder().setValue(defaultRecallParallelism).build());
+      }
+      if (defaultFetchParallelism != null) {
+        liveSettingsBuilder.setDefaultFetchParallelism(
+            Int32Value.newBuilder().setValue(defaultFetchParallelism).build());
       }
 
       IndexLiveSettings indexLiveSettings = liveSettingsBuilder.build();

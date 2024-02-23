@@ -1101,6 +1101,10 @@ message IndexLiveSettings {
     google.protobuf.UInt64Value maxMergePreCopyDurationSec = 14;
     // Collect and publish additional index metrics, which may be more expensive in terms of volume, memory and/or compute, default: false
     google.protobuf.BoolValue verboseMetrics = 15;
+    google.protobuf.BoolValue useUnifiedThreadPool = 16;
+    google.protobuf.Int32Value defaultRecallParallelism = 17;
+    google.protobuf.Int32Value defaultFetchParallelism = 18;
+
 }
 
 message IndexStateInfo {

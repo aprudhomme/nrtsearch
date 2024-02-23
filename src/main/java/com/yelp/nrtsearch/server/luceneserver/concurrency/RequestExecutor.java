@@ -15,36 +15,54 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.concurrency;
 
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class RequestExecutor<T, U> {
-  private final TaskExecutor<U> taskExecutor;
+public class RequestExecutor<T, U, V> {
+  private static final Logger logger = LoggerFactory.getLogger(RequestExecutor.class);
+  private final TaskExecutor<V> taskExecutor;
   private final StreamObserver<T> responseStreamObserver;
-  private final U priority;
-  private final ConcurrentLinkedDeque<Runnable> onFinished = new ConcurrentLinkedDeque<>();
+  private final Function<U, T> responseFunc;
+  private final V priority;
+  private final Function<Throwable, StatusRuntimeException> exceptionFunc;
+  private final ConcurrentLinkedDeque<OnFinishedTask> onFinished = new ConcurrentLinkedDeque<>();
   private final AtomicInteger pendingTasks = new AtomicInteger();
   private volatile Throwable t = null;
 
-  public RequestExecutor(
-      TaskExecutor<U> taskExecutor, StreamObserver<T> responseStreamObserver, U priority) {
-    this.taskExecutor = taskExecutor;
-    this.responseStreamObserver = responseStreamObserver;
-    this.priority = priority;
-    taskExecutor.startRequest();
-    addOnFinished(taskExecutor::endRequest);
+  @FunctionalInterface
+  public interface OnFinishedTask {
+    void execute(Throwable t);
   }
 
-  public synchronized void addResult(T result) {
-    responseStreamObserver.onNext(result);
+  public RequestExecutor(
+      TaskExecutor<V> taskExecutor,
+      StreamObserver<T> responseStreamObserver,
+      Function<U, T> responseFunc,
+      V priority,
+      Function<Throwable, StatusRuntimeException> exceptionFunc) {
+    this.taskExecutor = taskExecutor;
+    this.responseStreamObserver = responseStreamObserver;
+    this.responseFunc = responseFunc;
+    this.priority = priority;
+    this.exceptionFunc = exceptionFunc;
+    taskExecutor.startRequest();
+    addOnFinished(t -> taskExecutor.endRequest());
+  }
+
+  public synchronized void addResult(U result) {
+    responseStreamObserver.onNext(responseFunc.apply(result));
   }
 
   public void onError(Throwable error) {
-    if (t != null) {
+    if (t == null) {
       t = error;
     }
     taskFinished();
@@ -53,25 +71,34 @@ public class RequestExecutor<T, U> {
   private void taskFinished() {
     int pending = pendingTasks.decrementAndGet();
     if (pending == 0) {
-      synchronized (this) {
-        if (t != null) {
-          responseStreamObserver.onError(t);
-        } else {
-          responseStreamObserver.onCompleted();
+      try {
+        synchronized (this) {
+          if (t != null) {
+            Throwable resultError = t;
+            try {
+              resultError = exceptionFunc.apply(t);
+            } catch (Throwable funct) {
+              logger.warn("Ignored exception from exception function: " + funct);
+            }
+            responseStreamObserver.onError(resultError);
+          } else {
+            responseStreamObserver.onCompleted();
+          }
         }
-      }
-      for (Runnable finishTask : onFinished) {
-        try {
-          finishTask.run();
-        } catch (Throwable t) {
-          System.out.println("Ignored exception in finish task: " + t);
+      } finally {
+        for (OnFinishedTask finishTask : onFinished) {
+          try {
+            finishTask.execute(t);
+          } catch (Throwable t) {
+            logger.warn("Ignored exception in finish task: " + t);
+          }
         }
       }
     }
   }
 
-  public void addOnFinished(Runnable r) {
-    onFinished.addFirst(r);
+  public void addOnFinished(OnFinishedTask task) {
+    onFinished.addFirst(task);
   }
 
   public void execute(Runnable task) {

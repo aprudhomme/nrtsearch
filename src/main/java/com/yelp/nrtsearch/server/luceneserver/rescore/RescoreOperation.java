@@ -39,7 +39,7 @@ public interface RescoreOperation {
   default void rescore(
       TopDocs hits,
       RescoreContext context,
-      RequestExecutor<?, ?> requestExecutor,
+      RequestExecutor<?, ?, ?> requestExecutor,
       Consumer<TopDocs> resultConsumer)
       throws IOException {
     resultConsumer.accept(rescore(hits, context));

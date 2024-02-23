@@ -35,6 +35,7 @@ import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.innerhit.InnerHitFetchTask;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchCutoffWrapper.CollectionTimeoutException;
+import com.yelp.nrtsearch.server.monitoring.VerboseIndexCollector;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,11 +59,10 @@ public class SearchV3Handler {
   public static void executeSearch(
       IndexState indexState,
       SearchRequest searchRequest,
-      RequestExecutor<SearchResponse, Long> requestExecutor)
+      RequestExecutor<?, SearchResponse, Long> requestExecutor)
       throws IOException, ExecutionException, InterruptedException {
-    // TODO make configurable
-    int maxRecallParallelism = 4;
-    int maxFetchParallelism = 3;
+    int maxRecallParallelism = indexState.getDefaultRecallParallelism();
+    int maxFetchParallelism = indexState.getDefaultFetchParallelism();
     var diagnostics = SearchResponse.Diagnostics.newBuilder();
 
     final ProfileResult.Builder profileResultBuilder;
@@ -71,14 +71,23 @@ public class SearchV3Handler {
     } else {
       profileResultBuilder = null;
     }
+    requestExecutor.addOnFinished(
+        t -> {
+          if (t == null && indexState.getWarmer() != null) {
+            indexState.getWarmer().addSearchRequest(searchRequest);
+          }
+        });
 
     SearchContext searchContext;
     try {
-      searchContext = buildSearchContext(searchRequest, indexState, diagnostics);
+      searchContext =
+          buildSearchContext(searchRequest, indexState, diagnostics, profileResultBuilder);
+    } catch (RuntimeException re) {
+      throw re;
     } catch (Throwable t) {
       throw new RuntimeException(t);
     }
-    requestExecutor.addOnFinished(() -> SearchV3Handler.releaseContext(searchContext));
+    requestExecutor.addOnFinished(t -> SearchV3Handler.releaseContext(searchContext));
 
     long searchStartTime = System.nanoTime();
 
@@ -160,7 +169,7 @@ public class SearchV3Handler {
 
   private static void postFacetRecall(
       List<FacetResult> grpcFacetResults,
-      RequestExecutor<SearchResponse, Long> requestExecutor,
+      RequestExecutor<?, SearchResponse, Long> requestExecutor,
       SearchRequest searchRequest,
       SearchContext searchContext,
       Diagnostics.Builder diagnostics,
@@ -190,7 +199,7 @@ public class SearchV3Handler {
   }
 
   private static void postRecall(
-      RequestExecutor<SearchResponse, Long> requestExecutor,
+      RequestExecutor<?, SearchResponse, Long> requestExecutor,
       SearchContext searchContext,
       Diagnostics.Builder diagnostics,
       ProfileResult.Builder profileResultBuilder,
@@ -255,7 +264,7 @@ public class SearchV3Handler {
     private final Diagnostics.Builder diagnostics;
     private final ProfileResult.Builder profileResultBuilder;
     private final int maxFetchParallelism;
-    private final RequestExecutor<SearchResponse, Long> requestExecutor;
+    private final RequestExecutor<?, SearchResponse, Long> requestExecutor;
 
     RescorerConsumer(
         long rescorePhaseStart,
@@ -265,7 +274,7 @@ public class SearchV3Handler {
         Diagnostics.Builder diagnostics,
         ProfileResult.Builder profileResultBuilder,
         int maxFetchParallelism,
-        RequestExecutor<SearchResponse, Long> requestExecutor) {
+        RequestExecutor<?, SearchResponse, Long> requestExecutor) {
       this.rescorePhaseStart = rescorePhaseStart;
       this.rescorerStart = rescorerStart;
       this.index = index;
@@ -327,7 +336,7 @@ public class SearchV3Handler {
       Diagnostics.Builder diagnostics,
       ProfileResult.Builder profileResultBuilder,
       int maxFetchParallelism,
-      RequestExecutor<SearchResponse, Long> requestExecutor)
+      RequestExecutor<?, SearchResponse, Long> requestExecutor)
       throws IOException, ExecutionException, InterruptedException {
     long t0 = System.nanoTime();
 
@@ -353,7 +362,7 @@ public class SearchV3Handler {
       Diagnostics.Builder diagnostics,
       ProfileResult.Builder profileResultBuilder,
       long fetchStartNs,
-      RequestExecutor<SearchResponse, Long> requestExecutor) {
+      RequestExecutor<?, SearchResponse, Long> requestExecutor) {
     SearchState.Builder searchState = SearchState.newBuilder();
     searchContext.getResponseBuilder().setSearchState(searchState);
     searchState.setTimestamp(searchContext.getTimestampSec());
@@ -390,18 +399,26 @@ public class SearchV3Handler {
     if (profileResultBuilder != null) {
       searchContext.getResponseBuilder().setProfileResult(profileResultBuilder);
     }
+    SearchResponse searchResponse = searchContext.getResponseBuilder().build();
+    if (searchContext.getIndexState().getVerboseMetrics()) {
+      VerboseIndexCollector.updateSearchResponseMetrics(
+          searchResponse, searchContext.getIndexState().getName());
+    }
     requestExecutor.addResult(searchContext.getResponseBuilder().build());
   }
 
   private static SearchContext buildSearchContext(
-      SearchRequest searchRequest, IndexState indexState, Diagnostics.Builder diagnostics)
+      SearchRequest searchRequest,
+      IndexState indexState,
+      Diagnostics.Builder diagnostics,
+      ProfileResult.Builder profileResultBuilder)
       throws IOException, InterruptedException {
     ShardState shardState = indexState.getShard(0);
     SearcherTaxonomyManager.SearcherAndTaxonomy s = null;
     try {
       s = getSearcherAndTaxonomy(searchRequest, indexState, shardState, diagnostics, null);
       return SearchRequestProcessor.buildContextForRequest(
-          searchRequest, indexState, shardState, s, null);
+          searchRequest, indexState, shardState, s, profileResultBuilder);
     } catch (Throwable t) {
       try {
         if (s != null) {

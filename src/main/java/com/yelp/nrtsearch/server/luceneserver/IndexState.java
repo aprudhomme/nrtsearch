@@ -486,6 +486,12 @@ public abstract class IndexState implements Closeable {
   /** Get if additional index metrics should be collected and published. */
   public abstract boolean getVerboseMetrics();
 
+  public abstract boolean getUseUnifiedThreadPool();
+
+  public abstract int getDefaultRecallParallelism();
+
+  public abstract int getDefaultFetchParallelism();
+
   @Override
   public void close() throws IOException {}
 

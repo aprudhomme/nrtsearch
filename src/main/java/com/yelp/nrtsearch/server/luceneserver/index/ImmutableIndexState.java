@@ -165,6 +165,9 @@ public class ImmutableIndexState extends IndexState {
           .setDefaultTerminateAfter(Int32Value.newBuilder().setValue(0).build())
           .setMaxMergePreCopyDurationSec(UInt64Value.newBuilder().setValue(0))
           .setVerboseMetrics(BoolValue.newBuilder().setValue(false).build())
+          .setUseUnifiedThreadPool(BoolValue.newBuilder().setValue(true).build())
+          .setDefaultRecallParallelism(Int32Value.newBuilder().setValue(20).build())
+          .setDefaultFetchParallelism(Int32Value.newBuilder().setValue(5).build())
           .build();
 
   // Live Settings
@@ -183,6 +186,9 @@ public class ImmutableIndexState extends IndexState {
   private final int defaultTerminateAfter;
   private final long maxMergePreCopyDurationSec;
   private final boolean verboseMetrics;
+  private final boolean useUnifiedThreadPool;
+  private final int defaultRecallParallelism;
+  private final int defaultFetchParallelism;
 
   private final IndexStateManager indexStateManager;
   private final String uniqueName;
@@ -276,6 +282,9 @@ public class ImmutableIndexState extends IndexState {
     maxMergePreCopyDurationSec =
         mergedLiveSettingsWithLocal.getMaxMergePreCopyDurationSec().getValue();
     verboseMetrics = mergedLiveSettingsWithLocal.getVerboseMetrics().getValue();
+    useUnifiedThreadPool = mergedLiveSettingsWithLocal.getUseUnifiedThreadPool().getValue();
+    defaultRecallParallelism = mergedLiveSettingsWithLocal.getDefaultRecallParallelism().getValue();
+    defaultFetchParallelism = mergedLiveSettingsWithLocal.getDefaultFetchParallelism().getValue();
 
     // If there is previous shard state, use it. Otherwise, initialize the shard.
     if (previousShardState != null) {
@@ -846,6 +855,21 @@ public class ImmutableIndexState extends IndexState {
   @Override
   public boolean getVerboseMetrics() {
     return verboseMetrics;
+  }
+
+  @Override
+  public boolean getUseUnifiedThreadPool() {
+    return useUnifiedThreadPool;
+  }
+
+  @Override
+  public int getDefaultRecallParallelism() {
+    return defaultRecallParallelism;
+  }
+
+  @Override
+  public int getDefaultFetchParallelism() {
+    return defaultFetchParallelism;
   }
 
   @Override

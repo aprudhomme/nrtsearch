@@ -1727,6 +1727,9 @@ public class StateBackendServerTest {
             .setDefaultTerminateAfter(Int32Value.newBuilder().setValue(5000).build())
             .setMaxMergePreCopyDurationSec(UInt64Value.newBuilder().setValue(0))
             .setVerboseMetrics(BoolValue.newBuilder().setValue(false).build())
+            .setUseUnifiedThreadPool(BoolValue.newBuilder().setValue(true).build())
+            .setDefaultRecallParallelism(Int32Value.newBuilder().setValue(20).build())
+            .setDefaultFetchParallelism(Int32Value.newBuilder().setValue(5).build())
             .build();
 
     IndexLiveSettings.Builder builder = IndexLiveSettings.newBuilder();

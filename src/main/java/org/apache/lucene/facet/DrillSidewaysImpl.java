@@ -568,7 +568,7 @@ public class DrillSidewaysImpl extends DrillSideways {
       final DrillDownQuery query,
       final CollectorManager<?, R> hitCollectorManager,
       Consumer<R> resultConsumer,
-      RequestExecutor<SearchResponse, Long> requestExecutor,
+      RequestExecutor<?, SearchResponse, Long> requestExecutor,
       int maxParallelism)
       throws IOException {
     final Map<String, Integer> drillDownDims = query.getDims();

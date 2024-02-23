@@ -54,7 +54,7 @@ public class RescoreTask {
   public void rescore(
       TopDocs hits,
       SearchContext searchContext,
-      RequestExecutor<?, ?> requestExecutor,
+      RequestExecutor<?, ?, ?> requestExecutor,
       Consumer<TopDocs> resultsConsumer)
       throws IOException {
     RescoreContext context = new RescoreContext(windowSize, searchContext);

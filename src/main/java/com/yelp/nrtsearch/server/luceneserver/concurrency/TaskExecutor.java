@@ -15,24 +15,19 @@
  */
 package com.yelp.nrtsearch.server.luceneserver.concurrency;
 
+import com.yelp.nrtsearch.server.monitoring.ThreadPoolCollector;
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.PriorityBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.RejectedExecutionHandler;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class TaskExecutor<T> {
+public class TaskExecutor<T> implements Closeable {
   private static final Logger logger = LoggerFactory.getLogger(TaskExecutor.class);
   private final TaskThreadPool taskThreadPool;
   private final PriorityBlockingQueue<Runnable> threadPoolQueue;
@@ -40,6 +35,15 @@ public class TaskExecutor<T> {
   private final AtomicInteger activeRequests = new AtomicInteger();
   private final LoadCalcThread loadCalcThread;
   private volatile double loadAvg = 0;
+
+  @Override
+  public void close() throws IOException {
+    // TODO: do this better
+    taskThreadPool.shutdown();
+    if (loadCalcThread != null) {
+      loadCalcThread.interrupt();
+    }
+  }
 
   private class LoadCalcThread extends Thread {
     private final double EXP_1 = Math.exp(-5.0 / 60.0);
@@ -276,11 +280,13 @@ public class TaskExecutor<T> {
             TimeUnit.SECONDS,
             threadPoolQueue,
             (r, e) -> logger.error("Thread pool rejected task"));
+    ThreadPoolCollector.addPool("UNIFIED", this.taskThreadPool);
 
-    loadCalcThread = new LoadCalcThread();
+    /*loadCalcThread = new LoadCalcThread();
     loadCalcThread.setName("LoadAvgCalc");
     loadCalcThread.setDaemon(true);
-    loadCalcThread.start();
+    loadCalcThread.start();*/
+    loadCalcThread = null;
   }
 
   public void startRequest() {
@@ -333,6 +339,13 @@ public class TaskExecutor<T> {
         BlockingQueue<Runnable> workQueue,
         RejectedExecutionHandler handler) {
       super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, handler);
+      ThreadFactory factory = getThreadFactory();
+      setThreadFactory(
+          r -> {
+            Thread thread = factory.newThread(r);
+            thread.setUncaughtExceptionHandler((t, e) -> {});
+            return thread;
+          });
     }
 
     public void execute(TaskRunnable<?> taskRunnable) {

@@ -42,7 +42,6 @@ import com.yelp.nrtsearch.server.luceneserver.*;
 import com.yelp.nrtsearch.server.luceneserver.AddDocumentHandler.DocumentIndexer;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalyzerCreator;
 import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
-import com.yelp.nrtsearch.server.luceneserver.concurrency.TaskExecutor;
 import com.yelp.nrtsearch.server.luceneserver.custom.request.CustomRequestProcessor;
 import com.yelp.nrtsearch.server.luceneserver.field.FieldDefCreator;
 import com.yelp.nrtsearch.server.luceneserver.highlights.HighlighterService;
@@ -82,6 +81,7 @@ import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.QueryCache;
@@ -291,7 +291,7 @@ public class LuceneServer {
   }
 
   static class LuceneServerImpl extends LuceneServerGrpc.LuceneServerImplBase {
-    private final JsonFormat.Printer protoMessagePrinter =
+    private static final JsonFormat.Printer protoMessagePrinter =
         JsonFormat.printer().omittingInsignificantWhitespace();
     private final GlobalState globalState;
     private final Archiver archiver;
@@ -1061,18 +1061,63 @@ public class LuceneServer {
       }
     }
 
+    private static Function<Throwable, StatusRuntimeException> searchExceptionFuncFactory(
+        SearchRequest searchRequest) {
+      return t -> {
+        String searchRequestJson = null;
+        try {
+          searchRequestJson = protoMessagePrinter.print(searchRequest);
+        } catch (InvalidProtocolBufferException ignored) {
+          // Ignore as invalid proto would have thrown an exception earlier
+        }
+        logger.warn(
+            String.format(
+                "error while trying to execute search for index %s: request: %s",
+                searchRequest.getIndexName(), searchRequestJson),
+            t);
+        if (t instanceof StatusRuntimeException) {
+          return (StatusRuntimeException) t;
+        } else {
+          return Status.UNKNOWN
+              .withDescription(
+                  String.format(
+                      "error while trying to execute search for index %s. check logs for full searchRequest.",
+                      searchRequest.getIndexName()))
+              .augmentDescription(t.getMessage())
+              .asRuntimeException();
+        }
+      };
+    }
+
     @Override
     public void search(
         SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
-      System.out.println("V1");
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
             searchRequest.getResponseCompression(), searchResponseStreamObserver);
-        SearchHandler searchHandler = new SearchHandler(searchThreadPoolExecutor);
-        SearchResponse reply = searchHandler.handle(indexState, searchRequest);
-        searchResponseStreamObserver.onNext(reply);
-        searchResponseStreamObserver.onCompleted();
+        if (indexState.getUseUnifiedThreadPool()) {
+          RequestExecutor<SearchResponse, SearchResponse, Long> requestExecutor =
+              new RequestExecutor<>(
+                  globalState.getTaskExecutor(),
+                  searchResponseStreamObserver,
+                  r -> r,
+                  System.currentTimeMillis(),
+                  searchExceptionFuncFactory(searchRequest));
+          requestExecutor.execute(
+              () -> {
+                try {
+                  SearchV3Handler.executeSearch(indexState, searchRequest, requestExecutor);
+                } catch (IOException | ExecutionException | InterruptedException e) {
+                  throw new RuntimeException(e);
+                }
+              });
+        } else {
+          SearchHandler searchHandler = new SearchHandler(searchThreadPoolExecutor);
+          SearchResponse reply = searchHandler.handle(indexState, searchRequest);
+          searchResponseStreamObserver.onNext(reply);
+          searchResponseStreamObserver.onCompleted();
+        }
       } catch (IOException e) {
         logger.warn(
             "error while trying to read index state dir for indexName: "
@@ -1120,10 +1165,28 @@ public class LuceneServer {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
             searchRequest.getResponseCompression(), searchResponseStreamObserver);
-        SearchHandler searchHandler = new SearchHandler(searchThreadPoolExecutor);
-        SearchResponse reply = searchHandler.handle(indexState, searchRequest);
-        searchResponseStreamObserver.onNext(Any.pack(reply));
-        searchResponseStreamObserver.onCompleted();
+        if (indexState.getUseUnifiedThreadPool()) {
+          RequestExecutor<Any, SearchResponse, Long> requestExecutor =
+              new RequestExecutor<>(
+                  globalState.getTaskExecutor(),
+                  searchResponseStreamObserver,
+                  Any::pack,
+                  System.currentTimeMillis(),
+                  searchExceptionFuncFactory(searchRequest));
+          requestExecutor.execute(
+              () -> {
+                try {
+                  SearchV3Handler.executeSearch(indexState, searchRequest, requestExecutor);
+                } catch (IOException | ExecutionException | InterruptedException e) {
+                  throw new RuntimeException(e);
+                }
+              });
+        } else {
+          SearchHandler searchHandler = new SearchHandler(searchThreadPoolExecutor);
+          SearchResponse reply = searchHandler.handle(indexState, searchRequest);
+          searchResponseStreamObserver.onNext(Any.pack(reply));
+          searchResponseStreamObserver.onCompleted();
+        }
       } catch (IOException e) {
         logger.warn(
             "error while trying to read index state dir for indexName: "
@@ -1164,10 +1227,6 @@ public class LuceneServer {
       }
     }
 
-    // TODO move and make configurable
-    private static final TaskExecutor<Long> taskExecutor =
-        new TaskExecutor<>(16, Long::compareTo, 1024);
-
     @Override
     public void searchV3(
         SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
@@ -1175,9 +1234,13 @@ public class LuceneServer {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
         setResponseCompression(
             searchRequest.getResponseCompression(), searchResponseStreamObserver);
-        RequestExecutor<SearchResponse, Long> requestExecutor =
+        RequestExecutor<SearchResponse, SearchResponse, Long> requestExecutor =
             new RequestExecutor<>(
-                taskExecutor, searchResponseStreamObserver, System.currentTimeMillis());
+                globalState.getTaskExecutor(),
+                searchResponseStreamObserver,
+                r -> r,
+                System.currentTimeMillis(),
+                searchExceptionFuncFactory(searchRequest));
         requestExecutor.execute(
             () -> {
               try {

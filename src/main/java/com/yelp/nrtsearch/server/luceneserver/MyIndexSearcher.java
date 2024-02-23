@@ -298,7 +298,7 @@ public class MyIndexSearcher extends IndexSearcher {
       Query query,
       CollectorManager<C, T> collectorManager,
       Consumer<T> resultConsumer,
-      RequestExecutor<SearchResponse, Long> requestExecutor,
+      RequestExecutor<?, SearchResponse, Long> requestExecutor,
       int maxParallelism)
       throws IOException {
     LeafSlice[] leafSlices = getSlices();
@@ -326,7 +326,7 @@ public class MyIndexSearcher extends IndexSearcher {
       query = rewrite(query);
       final Weight weight = createWeight(query, scoreMode, 1);
       List<Callable<C>> sliceOps = new ArrayList<>(leafSlices.length);
-      for (int i = 0; i < leafSlices.length - 1; ++i) {
+      for (int i = 0; i < leafSlices.length; ++i) {
         final LeafReaderContext[] leaves = leafSlices[i].leaves;
         final C collector = collectors.get(i);
         sliceOps.add(

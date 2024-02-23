@@ -310,7 +310,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    */
   public static void fetchFields(
       SearchContext searchContext,
-      RequestExecutor<?, ?> requestExecutor,
+      RequestExecutor<?, ?, ?> requestExecutor,
       Runnable nextTask,
       int maxParallelism)
       throws IOException, ExecutionException, InterruptedException {
@@ -481,7 +481,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       List<Hit.Builder> hitBuilders,
       List<LeafReaderContext> hitIdToLeaves,
       SearchContext searchContext,
-      RequestExecutor<?, ?> requestExecutor,
+      RequestExecutor<?, ?, ?> requestExecutor,
       Runnable nextTask)
       throws IOException {
     for (List<Map<String, CompositeFieldValue>> values : results) {
@@ -509,7 +509,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
   }
 
   private static void finishFetchFields(
-      SearchContext searchContext, RequestExecutor<?, ?> requestExecutor, Runnable nextTask) {
+      SearchContext searchContext, RequestExecutor<?, ?, ?> requestExecutor, Runnable nextTask) {
     // execute all hits fetch tasks
     try {
       searchContext
