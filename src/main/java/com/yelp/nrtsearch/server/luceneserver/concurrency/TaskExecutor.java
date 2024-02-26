@@ -218,7 +218,9 @@ public class TaskExecutor<T> implements Closeable {
       } else {
         try {
           V result = ((FutureTask<V>) r).get();
-          resultsList.set(id, result);
+          synchronized (resultsList) {
+            resultsList.set(id, result);
+          }
         } catch (InterruptedException | ExecutionException e) {
           if (error == null) {
             error = e;
@@ -230,7 +232,9 @@ public class TaskExecutor<T> implements Closeable {
         if (error != null) {
           onError.accept(error);
         } else {
-          execute(() -> nextTask.accept(resultsList), priority, onComplete, onError);
+          synchronized (resultsList) {
+            execute(() -> nextTask.accept(resultsList), priority, onComplete, onError);
+          }
         }
       } else {
         int nextId = startedSubTasks.getAndIncrement();
