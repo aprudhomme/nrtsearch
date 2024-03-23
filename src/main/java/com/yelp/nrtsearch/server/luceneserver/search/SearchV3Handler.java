@@ -35,7 +35,7 @@ import com.yelp.nrtsearch.server.luceneserver.concurrency.RequestExecutor;
 import com.yelp.nrtsearch.server.luceneserver.facet.FacetTopDocs;
 import com.yelp.nrtsearch.server.luceneserver.innerhit.InnerHitFetchTask;
 import com.yelp.nrtsearch.server.luceneserver.search.SearchCutoffWrapper.CollectionTimeoutException;
-import com.yelp.nrtsearch.server.monitoring.VerboseIndexCollector;
+import com.yelp.nrtsearch.server.monitoring.SearchResponseCollector;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -400,10 +400,10 @@ public class SearchV3Handler {
       searchContext.getResponseBuilder().setProfileResult(profileResultBuilder);
     }
     SearchResponse searchResponse = searchContext.getResponseBuilder().build();
-    if (searchContext.getIndexState().getVerboseMetrics()) {
-      VerboseIndexCollector.updateSearchResponseMetrics(
-          searchResponse, searchContext.getIndexState().getName());
-    }
+    SearchResponseCollector.updateSearchResponseMetrics(
+        searchResponse,
+        searchContext.getIndexState().getName(),
+        searchContext.getIndexState().getVerboseMetrics());
     requestExecutor.addResult(searchContext.getResponseBuilder().build());
   }
 
