@@ -317,7 +317,7 @@ public class SearchV3Handler {
                   new RescorerConsumer(
                       rescorePhaseStart,
                       System.nanoTime(),
-                      nextIndex + 1,
+                      nextIndex,
                       searchContext,
                       diagnostics,
                       profileResultBuilder,
