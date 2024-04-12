@@ -41,10 +41,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.sortedset.DefaultSortedSetDocValuesReaderState;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState;
@@ -85,7 +82,7 @@ public class ShardState implements Closeable {
   public static final int REPLICA_ID = 0;
   public static final String INDEX_DATA_DIR_NAME = "index";
   public static final String TAXONOMY_DATA_DIR_NAME = "taxonomy";
-  final ThreadPoolExecutor searchExecutor;
+  final ExecutorService searchExecutor;
 
   /** {@link IndexStateManager} for the index this shard belongs to */
   private final IndexStateManager indexStateManager;
@@ -301,7 +298,7 @@ public class ShardState implements Closeable {
       IndexStateManager indexStateManager,
       String indexName,
       Path rootDir,
-      ThreadPoolExecutor searchExecutor,
+      ExecutorService searchExecutor,
       int shardOrd,
       boolean doCreate) {
     this.indexStateManager = indexStateManager;

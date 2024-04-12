@@ -37,7 +37,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
 import org.apache.lucene.search.TimeLimitingCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +63,7 @@ public abstract class GlobalState implements Closeable {
 
   private final ExecutorService indexService;
   private final ExecutorService fetchService;
-  private final ThreadPoolExecutor searchThreadPoolExecutor;
+  private final ExecutorService searchThreadPoolExecutor;
 
   public static GlobalState createState(LuceneServerConfiguration luceneServerConfiguration)
       throws IOException {
@@ -264,7 +263,7 @@ public abstract class GlobalState implements Closeable {
     return threadPoolConfiguration;
   }
 
-  public ThreadPoolExecutor getSearchThreadPoolExecutor() {
+  public ExecutorService getSearchThreadPoolExecutor() {
     return searchThreadPoolExecutor;
   }
 

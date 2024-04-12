@@ -16,12 +16,7 @@
 package com.yelp.nrtsearch.server.utils;
 
 import com.yelp.nrtsearch.server.config.ThreadPoolConfiguration;
-import com.yelp.nrtsearch.server.monitoring.ThreadPoolCollector;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import org.apache.lucene.util.NamedThreadFactory;
+import java.util.concurrent.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,9 +40,10 @@ public class ThreadPoolExecutorFactory {
    * @param threadPoolConfiguration {@link ThreadPoolConfiguration}
    * @return {@link ThreadPoolExecutor}
    */
-  public static ThreadPoolExecutor getThreadPoolExecutor(
+  public static ExecutorService getThreadPoolExecutor(
       ExecutorType executorType, ThreadPoolConfiguration threadPoolConfiguration) {
-    ThreadPoolExecutor threadPoolExecutor;
+    return Executors.newVirtualThreadPerTaskExecutor();
+    /*ThreadPoolExecutor threadPoolExecutor;
     if (executorType.equals(ExecutorType.SEARCH)) {
       logger.info(
           "Creating LuceneSearchExecutor of size "
@@ -126,6 +122,6 @@ public class ThreadPoolExecutorFactory {
       throw new RuntimeException("Invalid executor type provided " + executorType.toString());
     }
     ThreadPoolCollector.addPool(executorType.name(), threadPoolExecutor);
-    return threadPoolExecutor;
+    return threadPoolExecutor;*/
   }
 }

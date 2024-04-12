@@ -53,10 +53,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -79,10 +76,10 @@ import org.slf4j.LoggerFactory;
 public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
 
   private static final Logger logger = LoggerFactory.getLogger(SearchHandler.class);
-  private final ThreadPoolExecutor threadPoolExecutor;
+  private final ExecutorService threadPoolExecutor;
   private final boolean warming;
 
-  public SearchHandler(ThreadPoolExecutor threadPoolExecutor) {
+  public SearchHandler(ExecutorService threadPoolExecutor) {
     this(threadPoolExecutor, false);
   }
 
@@ -90,7 +87,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
    * @param threadPoolExecutor Threadpool to execute a parallel search
    * @param warming set to true if we are warming the index right now
    */
-  public SearchHandler(ThreadPoolExecutor threadPoolExecutor, boolean warming) {
+  public SearchHandler(ExecutorService threadPoolExecutor, boolean warming) {
     this.threadPoolExecutor = threadPoolExecutor;
     this.warming = warming;
   }
@@ -489,7 +486,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       IndexState indexState,
       ShardState state,
       SearchResponse.Diagnostics.Builder diagnostics,
-      ThreadPoolExecutor threadPoolExecutor)
+      ExecutorService threadPoolExecutor)
       throws InterruptedException, IOException {
     // TODO: Figure out which searcher to use:
     // final long searcherVersion; e.g. searcher.getLong("version")
@@ -654,7 +651,7 @@ public class SearchHandler implements Handler<SearchRequest, SearchResponse> {
       ShardState state,
       IndexState.Gens snapshot,
       SearchResponse.Diagnostics.Builder diagnostics,
-      ThreadPoolExecutor threadPoolExecutor)
+      ExecutorService threadPoolExecutor)
       throws IOException {
     // TODO: this "reverse-NRT" is ridiculous: we acquire
     // the latest reader, and from that do a reopen to an

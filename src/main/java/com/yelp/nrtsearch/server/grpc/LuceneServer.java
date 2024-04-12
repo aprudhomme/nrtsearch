@@ -294,7 +294,7 @@ public class LuceneServer {
     private final Archiver archiver;
     private final Archiver incArchiver;
     private final CollectorRegistry collectorRegistry;
-    private final ThreadPoolExecutor searchThreadPoolExecutor;
+    private final ExecutorService searchThreadPoolExecutor;
     private final String archiveDirectory;
     private final boolean backupFromIncArchiver;
 

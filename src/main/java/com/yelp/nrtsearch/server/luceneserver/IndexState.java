@@ -39,7 +39,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.regex.Pattern;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.AnalyzerWrapper;
@@ -84,7 +83,7 @@ public abstract class IndexState implements Closeable {
   private final Path rootDir;
 
   private static final Pattern reSimpleName = Pattern.compile("^[a-zA-Z_][a-zA-Z_0-9]*$");
-  private final ThreadPoolExecutor searchThreadPoolExecutor;
+  private final ExecutorService searchThreadPoolExecutor;
   private final ExecutorService fetchThreadPoolExecutor;
   private Warmer warmer = null;
 
@@ -278,7 +277,7 @@ public abstract class IndexState implements Closeable {
   }
 
   /** Get thread pool to use for search operations. */
-  public ThreadPoolExecutor getSearchThreadPoolExecutor() {
+  public ExecutorService getSearchThreadPoolExecutor() {
     return searchThreadPoolExecutor;
   }
 

@@ -40,7 +40,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ExecutorService;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
@@ -64,7 +64,7 @@ import org.slf4j.LoggerFactory;
 
 /** Handles {@code buildSuggest}. */
 public class BuildSuggestHandler implements Handler<BuildSuggestRequest, BuildSuggestResponse> {
-  private final ThreadPoolExecutor threadPoolExecutor;
+  private final ExecutorService threadPoolExecutor;
   Logger logger = LoggerFactory.getLogger(BuildSuggestHandler.class);
   private final JsonParser jsonParser = new JsonParser();
   private final Gson gson = new Gson();
@@ -455,7 +455,7 @@ public class BuildSuggestHandler implements Handler<BuildSuggestRequest, BuildSu
     }
   }
 
-  public BuildSuggestHandler(ThreadPoolExecutor threadPoolExecutor) {
+  public BuildSuggestHandler(ExecutorService threadPoolExecutor) {
     this.threadPoolExecutor = threadPoolExecutor;
   }
 
