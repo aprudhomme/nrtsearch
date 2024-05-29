@@ -16,7 +16,10 @@
 package com.yelp.nrtsearch.server.luceneserver.doc;
 
 import com.yelp.nrtsearch.server.luceneserver.IndexState;
+import com.yelp.nrtsearch.server.luceneserver.field.FieldDef;
 import org.apache.lucene.index.LeafReaderContext;
+
+import java.util.function.Function;
 
 /**
  * Index level class for providing access to doc values data. Provides a means to get a {@link
@@ -24,9 +27,11 @@ import org.apache.lucene.index.LeafReaderContext;
  */
 public class DocLookup {
   private final IndexState indexState;
+  private final Function<String, FieldDef> fieldDefLookup;
 
-  public DocLookup(IndexState indexState) {
+  public DocLookup(IndexState indexState, Function<String, FieldDef> fieldDefLookup) {
     this.indexState = indexState;
+    this.fieldDefLookup = fieldDefLookup;
   }
 
   /**
@@ -36,7 +41,7 @@ public class DocLookup {
    * @return lookup accessor for given segment context
    */
   public SegmentDocLookup getSegmentLookup(LeafReaderContext context) {
-    return new SegmentDocLookup(indexState, context);
+    return new SegmentDocLookup(fieldDefLookup, context);
   }
 
   /**
@@ -47,4 +52,14 @@ public class DocLookup {
   public IndexState getIndexState() {
     return indexState;
   }
+
+    /**
+     * Get the field definition for the given field name.
+     *
+     * @param fieldName field name
+     * @return field definition
+     */
+    public FieldDef getFieldDef(String fieldName) {
+      return fieldDefLookup.apply(fieldName);
+    }
 }
