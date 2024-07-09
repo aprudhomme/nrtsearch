@@ -1,20 +1,18 @@
-FROM debian:12
+FROM ubuntu:jammy
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y wget unzip htop \
-    golang-go \
+    golang-1.20-go \
     git \
     gnupg2 software-properties-common
 
 RUN wget -O- https://apt.corretto.aws/corretto.key | apt-key add -
 RUN add-apt-repository -y 'deb https://apt.corretto.aws stable main'
-# For some reason, needs to be run again for the repo to be usable
-RUN add-apt-repository -y 'deb https://apt.corretto.aws stable main'
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y java-21-amazon-corretto-jdk
 
 # Install protoc
-ENV PROTOC_VERSION=3.11.4
+ENV PROTOC_VERSION=3.15.0
 RUN wget https://github.com/google/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip \
     -O /protoc-${PROTOC_VERSION}-linux-x86_64.zip && \
     unzip /protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local/ && \
@@ -34,29 +32,31 @@ RUN ./gradlew clean installDist
 
 RUN mkdir /go
 ENV GOPATH /go
-ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
+ENV PATH $GOPATH/bin:/usr/lib/go-1.20/bin:$PATH
 
 RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
 
 #use go modules to pin module versions
 ENV GO111MODULE=on
-ENV GRPC_GATEWAY_VERSION=1.15.2
-ENV PROTOC_GEN_GO_VERSION=1.5.1
-ENV GRPC_VERSION=1.38.0
+ENV GRPC_GATEWAY_VERSION=2.6.0
+ENV PROTOC_GEN_GO_VERSION=1.27.1
+ENV PROTOC_GEN_GO_GRPC_VERSION=1.2.0
+ENV GRPC_VERSION=1.64.0
 
 RUN go mod init github.com/Yelp/nrtsearch
 
 #install required go protoc plugins to build grpc-gateway server
 RUN go get \
-    github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway@v${GRPC_GATEWAY_VERSION} \
-    github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger@v${GRPC_GATEWAY_VERSION} \
-    github.com/golang/protobuf/protoc-gen-go@v${PROTOC_GEN_GO_VERSION} \
-    google.golang.org/grpc@v${GRPC_VERSION}
+    github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v${GRPC_GATEWAY_VERSION} \
+    github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v${GRPC_GATEWAY_VERSION} \
+    google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION} \
+    google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
 
 RUN go install \
-    github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway@v${GRPC_GATEWAY_VERSION} \
-    github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger@v${GRPC_GATEWAY_VERSION}
-RUN go install github.com/golang/protobuf/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}
+    github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v${GRPC_GATEWAY_VERSION} \
+    github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v${GRPC_GATEWAY_VERSION}
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
 
 ENV PROTO_PATH=/code/clientlib/src/main/proto
 ENV PROTO_BUILD_PATH=/code/clientlib/build
@@ -66,8 +66,8 @@ RUN protoc \
 -I $PROTO_PATH \
 -I  $PROTO_BUILD_PATH/extracted-protos/main \
 -I $PROTO_BUILD_PATH/extracted-include-protos/main \
---plugin=protoc-gen-go=$GOPATH/bin/protoc-gen-go \
---go_out=plugins=grpc:$OUTPATH \
+--go-grpc_out=$OUTPATH \
+--go_out=$OUTPATH \
 $PROTO_PATH/yelp/nrtsearch/analysis.proto \
 $PROTO_PATH/yelp/nrtsearch/luceneserver.proto \
 $PROTO_PATH/yelp/nrtsearch/search.proto \
@@ -88,8 +88,7 @@ RUN protoc \
 -I $PROTO_PATH \
 -I $PROTO_BUILD_PATH/extracted-protos/main \
 -I $PROTO_BUILD_PATH/extracted-include-protos/main \
---plugin=protoc-gen-swagger=$GOPATH/bin/protoc-gen-swagger \
---swagger_out=logtostderr=true:$OUTPATH \
+--openapiv2_out=$OUTPATH \
 $PROTO_PATH/yelp/nrtsearch/analysis.proto \
 $PROTO_PATH/yelp/nrtsearch/luceneserver.proto \
 $PROTO_PATH/yelp/nrtsearch/search.proto \
@@ -97,6 +96,10 @@ $PROTO_PATH/yelp/nrtsearch/suggest.proto
 
 RUN cp $OUTPATH/yelp/nrtsearch/* grpc-gateway/
 RUN cp $OUTPATH/github.com/Yelp/nrtsearch/* grpc-gateway/
+
+RUN go mod download github.com/golang/glog
+RUN go get github.com/grpc-ecosystem/grpc-gateway/v2@v${GRPC_GATEWAY_VERSION}
+RUN go mod tidy
 
 # build go executables for various platforms
 RUN for GOOS in darwin linux windows; do \
