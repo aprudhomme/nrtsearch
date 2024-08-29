@@ -42,30 +42,26 @@ public interface RemoteBackend extends PluginDownloader {
       throws IOException;
 
   /**
-   * Download index resource data from backend through an {@link InputStream}.
+   * Upload warming query data to the remote backend.
    *
    * @param service service name
    * @param indexIdentifier unique index identifier
-   * @param resourceType type of index resource
-   * @return input stream to process downloaded resource
-   * @throws IllegalArgumentException if resource does not exist
-   * @throws IOException
+   * @param contents input stream of warming query data
+   * @param length length of input stream
+   * @throws IOException on error uploading warming queries
    */
-  InputStream downloadStream(String service, String indexIdentifier, IndexResourceType resourceType)
-      throws IOException;
+  void uploadWarmingQueries(
+      String service, String indexIdentifier, InputStream contents, long length) throws IOException;
 
   /**
-   * Upload file contents to the specified index resource, replacing any existing version.
+   * Download warming query data from the remote backend.
    *
    * @param service service name
    * @param indexIdentifier unique index identifier
-   * @param resourceType type of index resource
-   * @param file file data to upload
-   * @throws IllegalArgumentException if file does not exist, or is not a regular file
-   * @throws IOException on error uploading file
+   * @return input stream of warming query data
+   * @throws IOException on error downloading warming queries
    */
-  void uploadFile(String service, String indexIdentifier, IndexResourceType resourceType, Path file)
-      throws IOException;
+  InputStream downloadWarmingQueries(String service, String indexIdentifier) throws IOException;
 
   /**
    * Upload index files to the remote backend.

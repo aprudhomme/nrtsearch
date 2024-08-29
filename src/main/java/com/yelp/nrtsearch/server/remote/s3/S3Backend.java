@@ -32,7 +32,6 @@ import com.amazonaws.services.s3.transfer.Upload;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.yelp.nrtsearch.server.backup.VersionManager;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.luceneserver.nrt.state.NrtPointState;
@@ -43,7 +42,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Enumeration;
 import java.util.LinkedList;
@@ -60,19 +58,16 @@ import org.slf4j.LoggerFactory;
 
 /** Backend implementation that stored data in amazon s3 object storage. */
 public class S3Backend implements RemoteBackend {
-  public static final String WARMING_QUERIES_RESOURCE_SUFFIX = "_warming_queries";
-  public static final String LATEST_VERSION = "_latest_version";
-  static final String VERSION_STRING_FORMAT = "%s/_version/%s/%s";
-  static final String RESOURCE_KEY_FORMAT = "%s/%s/%s";
-
   private static final ObjectMapper OBJECT_MAPPER =
       new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-  ;
+
   static final String INDEX_RESOURCE_PREFIX_FORMAT = "%s/%s/%s/";
   static final String INDEX_BACKEND_FILE_FORMAT = "%s-%s-%s";
   static final String POINT_STATE_FILE_FORMAT = "%s-%s-%s";
   static final String POINT_STATE = "point_state";
+  static final String WARMING_QUERIES_FILE_FORMAT = "%s-%s";
   static final String DATA = "data";
+  static final String WARMING = "warming";
   static final String CURRENT_VERSION = "_current";
 
   private static final Logger logger = LoggerFactory.getLogger(S3Backend.class);
@@ -84,7 +79,6 @@ public class S3Backend implements RemoteBackend {
   private final boolean saveBeforeUnzip;
   private final AmazonS3 s3;
   private final String serviceBucket;
-  private final VersionManager versionManger;
   private final TransferManager transferManager;
 
   /**
@@ -117,7 +111,6 @@ public class S3Backend implements RemoteBackend {
     this.executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(NUM_S3_THREADS);
     this.saveBeforeUnzip = savePluginBeforeUnzip;
     this.serviceBucket = serviceBucket;
-    this.versionManger = new VersionManager(s3, serviceBucket);
     this.transferManager =
         TransferManagerBuilder.standard()
             .withS3Client(s3)
@@ -255,53 +248,52 @@ public class S3Backend implements RemoteBackend {
   @Override
   public boolean exists(String service, String indexIdentifier, IndexResourceType resourceType)
       throws IOException {
-    if (resourceType == IndexResourceType.POINT_STATE) {
-      String prefix = indexPointStateResourcePrefix(service, indexIdentifier);
-      return currentResourceExists(prefix);
-    } else {
-      String resource = getResourceName(indexIdentifier, resourceType);
-      try {
-        getVersionString(service, resource, LATEST_VERSION);
-        return true;
-      } catch (IllegalArgumentException e) {
-        return false;
-      }
-    }
+    String prefix =
+        switch (resourceType) {
+          case WARMING_QUERIES -> warmingQueriesResourcePrefix(service, indexIdentifier);
+          case POINT_STATE -> indexPointStateResourcePrefix(service, indexIdentifier);
+          default -> throw new IllegalArgumentException("Unknown resource type: " + resourceType);
+        };
+    return currentResourceExists(prefix);
   }
 
   @Override
-  public InputStream downloadStream(
-      String service, String indexIdentifier, IndexResourceType resourceType) throws IOException {
-    String resource = getResourceName(indexIdentifier, resourceType);
-    String latestVersion = getVersionString(service, resource, LATEST_VERSION);
-    String versionHash = getVersionString(service, resource, latestVersion);
-    String resourceKey = getResourceKey(service, resource, versionHash);
-    return downloadFromS3Path(serviceBucket, resourceKey);
-  }
-
-  @Override
-  public void uploadFile(
-      String service, String indexIdentifier, IndexResourceType resourceType, Path file)
+  public void uploadWarmingQueries(
+      String service, String indexIdentifier, InputStream contents, long length)
       throws IOException {
-    if (!Files.exists(file)) {
-      throw new IllegalArgumentException("File does not exist: " + file);
-    }
-    if (!Files.isRegularFile(file)) {
-      throw new IllegalArgumentException("Is not regular file: " + file);
-    }
-    String resource = getResourceName(indexIdentifier, resourceType);
-    String versionHash = UUID.randomUUID().toString();
-    String resourceKey = getResourceKey(service, resource, versionHash);
-    PutObjectRequest request = new PutObjectRequest(serviceBucket, resourceKey, file.toFile());
-    request.setGeneralProgressListener(new S3ProgressListenerImpl(service, resource, "upload"));
+    String prefix = warmingQueriesResourcePrefix(service, indexIdentifier);
+    String fileName = getWarmingQueriesFileName();
+    String backendKey = prefix + fileName;
+    ObjectMetadata metadata = new ObjectMetadata();
+    metadata.setContentLength(length);
+    PutObjectRequest request = new PutObjectRequest(serviceBucket, backendKey, contents, metadata);
+    request.setGeneralProgressListener(
+        new S3ProgressListenerImpl(service, indexIdentifier, "upload_warming_queries"));
     Upload upload = transferManager.upload(request);
     try {
       upload.waitForUploadResult();
-      logger.info("Upload completed ");
     } catch (InterruptedException e) {
-      throw new IOException("Error while uploading to s3. ", e);
+      throw new IOException("Error uploading warming queries to S3", e);
     }
-    versionManger.blessVersion(service, resource, versionHash);
+
+    setCurrentResource(prefix, fileName);
+  }
+
+  @Override
+  public InputStream downloadWarmingQueries(String service, String indexIdentifier)
+      throws IOException {
+    String prefix = warmingQueriesResourcePrefix(service, indexIdentifier);
+    String fileName = getCurrentResourceName(prefix);
+    String backendKey = prefix + fileName;
+    return downloadFromS3Path(serviceBucket, backendKey);
+  }
+
+  static String warmingQueriesResourcePrefix(String service, String indexIdentifier) {
+    return String.format(INDEX_RESOURCE_PREFIX_FORMAT, service, indexIdentifier, WARMING);
+  }
+
+  static String getWarmingQueriesFileName() {
+    return String.format(WARMING_QUERIES_FILE_FORMAT, generateTimeStringSec(), UUID.randomUUID());
   }
 
   @Override
@@ -458,8 +450,16 @@ public class S3Backend implements RemoteBackend {
 
   String getCurrentResourceName(String prefix) throws IOException {
     String key = prefix + CURRENT_VERSION;
-    S3Object s3Object = s3.getObject(serviceBucket, key);
-    return IOUtils.toString(s3Object.getObjectContent(), StandardCharsets.UTF_8);
+    try {
+      S3Object s3Object = s3.getObject(serviceBucket, key);
+      return IOUtils.toString(s3Object.getObjectContent(), StandardCharsets.UTF_8);
+    } catch (AmazonS3Exception e) {
+      if (isNotFoundException(e)) {
+        String error = String.format("Object s3://%s/%s not found", serviceBucket, key);
+        throw new IllegalArgumentException(error, e);
+      }
+      throw e;
+    }
   }
 
   void setCurrentResource(String prefix, String version) {
@@ -476,39 +476,6 @@ public class S3Backend implements RemoteBackend {
   boolean currentResourceExists(String prefix) {
     String key = prefix + CURRENT_VERSION;
     return s3.doesObjectExist(serviceBucket, key);
-  }
-
-  @VisibleForTesting
-  static String getResourceName(String indexIdentifier, IndexResourceType resourceType) {
-    return switch (resourceType) {
-      case WARMING_QUERIES -> indexIdentifier + WARMING_QUERIES_RESOURCE_SUFFIX;
-      default -> throw new IllegalArgumentException("Unknown resource type: " + resourceType);
-    };
-  }
-
-  @VisibleForTesting
-  static String getResourceKey(String service, String resource, String versionHash) {
-    return String.format(RESOURCE_KEY_FORMAT, service, resource, versionHash);
-  }
-
-  @VisibleForTesting
-  static String getVersionKey(String service, String resource, String version) {
-    return String.format(VERSION_STRING_FORMAT, service, resource, version);
-  }
-
-  private String getVersionString(
-      final String serviceName, final String resource, final String version) throws IOException {
-    final String absoluteResourcePath = getVersionKey(serviceName, resource, version);
-    try (final S3Object s3Object = s3.getObject(serviceBucket, absoluteResourcePath)) {
-      return IOUtils.toString(s3Object.getObjectContent());
-    } catch (AmazonS3Exception e) {
-      if (isNotFoundException(e)) {
-        String error =
-            String.format("Object s3://%s/%s not found", serviceBucket, absoluteResourcePath);
-        throw new IllegalArgumentException(error, e);
-      }
-      throw e;
-    }
   }
 
   private boolean isNotFoundException(AmazonS3Exception e) {

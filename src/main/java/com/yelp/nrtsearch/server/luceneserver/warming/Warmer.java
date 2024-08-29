@@ -25,12 +25,13 @@ import com.yelp.nrtsearch.server.luceneserver.SearchHandler;
 import com.yelp.nrtsearch.server.remote.RemoteBackend;
 import com.yelp.nrtsearch.server.remote.RemoteBackend.IndexResourceType;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,8 +44,6 @@ import org.slf4j.LoggerFactory;
 
 public class Warmer {
   private static final Logger logger = LoggerFactory.getLogger(Warmer.class);
-  public static final String WARMING_QUERIES_DIR = "warming_queries";
-  private static final String WARMING_QUERIES_FILE = "warming_queries.txt";
 
   private final RemoteBackend remoteBackend;
   private final String service;
@@ -82,43 +81,26 @@ public class Warmer {
     if (Strings.isNullOrEmpty(service)) {
       service = this.service;
     }
-    // TODO: tmpDirectory used for simplicity but we might want to provide directory via config
-    Path tmpDirectory = Paths.get(System.getProperty("java.io.tmpdir"));
-    Path warmingQueriesDir = null;
-    Path warmingQueriesFile = null;
-    BufferedWriter writer = null;
-    try {
-      // Creating a directory since the Archiver requires a directory
-      warmingQueriesDir = Files.createDirectory(tmpDirectory.resolve(WARMING_QUERIES_DIR));
-      warmingQueriesFile = warmingQueriesDir.resolve(WARMING_QUERIES_FILE);
-      writer = Files.newBufferedWriter(warmingQueriesFile);
-      int count = 0;
+
+    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+    int count = 0;
+    try (Writer writer = new OutputStreamWriter(byteArrayOutputStream, StandardCharsets.UTF_8)) {
       for (SearchRequest searchRequest : warmingRequests) {
         writer.write(JsonFormat.printer().omittingInsignificantWhitespace().print(searchRequest));
-        writer.newLine();
+        writer.write("\n");
         count++;
       }
-      writer.close();
-      writer = null;
-      remoteBackend.uploadFile(
-          service, index, IndexResourceType.WARMING_QUERIES, warmingQueriesFile);
-      logger.info(
-          "Backed up {} warming queries for index: {} to service: {}, type: {}",
-          count,
-          index,
-          service,
-          IndexResourceType.WARMING_QUERIES);
-    } finally {
-      if (writer != null) {
-        writer.close();
-      }
-      if (warmingQueriesFile != null && Files.exists(warmingQueriesFile)) {
-        Files.delete(warmingQueriesFile);
-      }
-      if (warmingQueriesDir != null && Files.exists(warmingQueriesDir)) {
-        Files.delete(warmingQueriesDir);
-      }
     }
+
+    byte[] warmingQueriesBytes = byteArrayOutputStream.toByteArray();
+    remoteBackend.uploadWarmingQueries(
+        service, index, new ByteArrayInputStream(warmingQueriesBytes), warmingQueriesBytes.length);
+    logger.info(
+        "Backed up {} warming queries for index: {} to service: {}, size: {}",
+        count,
+        index,
+        service,
+        warmingQueriesBytes.length);
   }
 
   public void warmFromS3(IndexState indexState, int parallelism)
@@ -150,7 +132,7 @@ public class Warmer {
     try (BufferedReader reader =
         new BufferedReader(
             new InputStreamReader(
-                remoteBackend.downloadStream(service, index, IndexResourceType.WARMING_QUERIES)))) {
+                remoteBackend.downloadWarmingQueries(service, index), StandardCharsets.UTF_8))) {
       String line;
       int count = 0;
       while ((line = reader.readLine()) != null) {
@@ -163,9 +145,6 @@ public class Warmer {
         threadPoolExecutor.shutdown();
         threadPoolExecutor.awaitTermination(10, TimeUnit.SECONDS);
       }
-      // Leave warming files on disk, for use if the index is restarted.
-      // If we find these files end up being too large, we could consider adding
-      // some kind of local resource cache purging to the Archiver interface.
     }
   }
 

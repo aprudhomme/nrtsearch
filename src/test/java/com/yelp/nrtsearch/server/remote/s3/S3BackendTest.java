@@ -38,8 +38,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -113,10 +113,11 @@ public class S3BackendTest {
   }
 
   @Test
-  public void testExists() throws IOException {
-    String resource = S3Backend.getResourceName("exist_index", IndexResourceType.WARMING_QUERIES);
-    String key = S3Backend.getVersionKey("exist_service", resource, S3Backend.LATEST_VERSION);
-    s3.putObject(BUCKET_NAME, key, "1");
+  public void testExists_warmingQueries() throws IOException {
+    String prefix = S3Backend.warmingQueriesResourcePrefix("exist_service", "exist_index");
+    String fileName = S3Backend.getWarmingQueriesFileName();
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    s3.putObject(BUCKET_NAME, currentKey, fileName);
 
     assertTrue(s3Backend.exists("exist_service", "exist_index", IndexResourceType.WARMING_QUERIES));
     assertFalse(
@@ -137,246 +138,150 @@ public class S3BackendTest {
   }
 
   @Test
-  public void testDownloadStream_singlePart() throws IOException {
-    String resource =
-        S3Backend.getResourceName("download_index", IndexResourceType.WARMING_QUERIES);
-    String latestKey =
-        S3Backend.getVersionKey("download_service", resource, S3Backend.LATEST_VERSION);
-    s3.putObject(BUCKET_NAME, latestKey, "1");
-
-    String versionKey = S3Backend.getVersionKey("download_service", resource, "1");
-    String resourceHash = UUID.randomUUID().toString();
-    s3.putObject(BUCKET_NAME, versionKey, resourceHash);
-
-    String resourceKey = S3Backend.getResourceKey("download_service", resource, resourceHash);
-    s3.putObject(BUCKET_NAME, resourceKey, "resource_data");
+  public void testDownloadWarmingQueries_singlePart() throws IOException {
+    String prefix =
+        S3Backend.warmingQueriesResourcePrefix("download_warming_service", "download_index");
+    String fileName = S3Backend.getWarmingQueriesFileName();
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    s3.putObject(BUCKET_NAME, currentKey, fileName);
+    s3.putObject(BUCKET_NAME, prefix + fileName, "resource_data");
 
     InputStream downloadStream =
-        s3Backend.downloadStream(
-            "download_service", "download_index", IndexResourceType.WARMING_QUERIES);
+        s3Backend.downloadWarmingQueries("download_warming_service", "download_index");
     assertEquals("resource_data", convertToString(downloadStream));
   }
 
   @Test
-  public void testDownloadStream_multiPart() throws IOException {
-    String resource =
-        S3Backend.getResourceName("download_index_2", IndexResourceType.WARMING_QUERIES);
-    String latestKey =
-        S3Backend.getVersionKey("download_service_2", resource, S3Backend.LATEST_VERSION);
-    s3.putObject(BUCKET_NAME, latestKey, "1");
-
-    String versionKey = S3Backend.getVersionKey("download_service_2", resource, "1");
-    String resourceHash = UUID.randomUUID().toString();
-    s3.putObject(BUCKET_NAME, versionKey, resourceHash);
-
-    String resourceKey = S3Backend.getResourceKey("download_service_2", resource, resourceHash);
-    putMultiPart(resourceKey, List.of("aaaa", "bbbb", "cccc", "dddd"));
+  public void testDownloadWarmingQueries_multiPart() throws IOException {
+    String prefix =
+        S3Backend.warmingQueriesResourcePrefix("download_warming_service_2", "download_index_2");
+    String fileName = S3Backend.getWarmingQueriesFileName();
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    s3.putObject(BUCKET_NAME, currentKey, fileName);
+    putMultiPart(prefix + fileName, List.of("aaaa", "bbbb", "cccc", "dddd"));
 
     InputStream downloadStream =
-        s3Backend.downloadStream(
-            "download_service_2", "download_index_2", IndexResourceType.WARMING_QUERIES);
+        s3Backend.downloadWarmingQueries("download_warming_service_2", "download_index_2");
     assertEquals("aaaabbbbccccdddd", convertToString(downloadStream));
   }
 
   @Test
-  public void testDownloadStream_notFound() throws IOException {
+  public void testDownloadWarmingQueries_notFound() throws IOException {
     try {
-      s3Backend.downloadStream(
-          "download_service_3", "download_index_3", IndexResourceType.WARMING_QUERIES);
+      s3Backend.downloadWarmingQueries("download_warming_service_3", "download_index_3");
       fail();
     } catch (IllegalArgumentException e) {
       assertEquals(
-          "Object s3://s3-backend-test/download_service_3/_version/download_index_3_warming_queries/_latest_version not found",
+          "Object s3://s3-backend-test/download_warming_service_3/download_index_3/warming/_current not found",
           e.getMessage());
     }
 
-    String resource =
-        S3Backend.getResourceName("download_index_3", IndexResourceType.WARMING_QUERIES);
-    String latestKey =
-        S3Backend.getVersionKey("download_service_3", resource, S3Backend.LATEST_VERSION);
-    s3.putObject(BUCKET_NAME, latestKey, "1");
+    String prefix =
+        S3Backend.warmingQueriesResourcePrefix("download_warming_service_3", "download_index_3");
+    String fileName = S3Backend.getWarmingQueriesFileName();
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    s3.putObject(BUCKET_NAME, currentKey, fileName);
 
     try {
-      s3Backend.downloadStream(
-          "download_service_3", "download_index_3", IndexResourceType.WARMING_QUERIES);
+      s3Backend.downloadWarmingQueries("download_warming_service_3", "download_index_3");
       fail();
     } catch (IllegalArgumentException e) {
       assertEquals(
-          "Object s3://s3-backend-test/download_service_3/_version/download_index_3_warming_queries/1 not found",
-          e.getMessage());
-    }
-
-    String versionKey = S3Backend.getVersionKey("download_service_3", resource, "1");
-    String resourceHash = UUID.randomUUID().toString();
-    s3.putObject(BUCKET_NAME, versionKey, resourceHash);
-
-    try {
-      s3Backend.downloadStream(
-          "download_service_3", "download_index_3", IndexResourceType.WARMING_QUERIES);
-      fail();
-    } catch (IllegalArgumentException e) {
-      assertEquals(
-          "Object s3://s3-backend-test/download_service_3/download_index_3_warming_queries/"
-              + resourceHash
+          "Object s3://s3-backend-test/download_warming_service_3/download_index_3/warming/"
+              + fileName
               + " not found",
           e.getMessage());
     }
   }
 
   @Test
-  public void testDownloadStream_updateData() throws IOException {
-    String resource =
-        S3Backend.getResourceName("download_index_4", IndexResourceType.WARMING_QUERIES);
-    String latestKey =
-        S3Backend.getVersionKey("download_service_4", resource, S3Backend.LATEST_VERSION);
-    s3.putObject(BUCKET_NAME, latestKey, "1");
-
-    String versionKey = S3Backend.getVersionKey("download_service_4", resource, "1");
-    String resourceHash = UUID.randomUUID().toString();
-    s3.putObject(BUCKET_NAME, versionKey, resourceHash);
-
-    String resourceKey = S3Backend.getResourceKey("download_service_4", resource, resourceHash);
-    s3.putObject(BUCKET_NAME, resourceKey, "resource_data_1");
+  public void testDownloadWarmingQueries_updateData() throws IOException {
+    String prefix =
+        S3Backend.warmingQueriesResourcePrefix("download_warming_service_4", "download_index_4");
+    String fileName = S3Backend.getWarmingQueriesFileName();
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    s3.putObject(BUCKET_NAME, currentKey, fileName);
+    s3.putObject(BUCKET_NAME, prefix + fileName, "resource_data_1");
 
     InputStream downloadStream =
-        s3Backend.downloadStream(
-            "download_service_4", "download_index_4", IndexResourceType.WARMING_QUERIES);
+        s3Backend.downloadWarmingQueries("download_warming_service_4", "download_index_4");
     assertEquals("resource_data_1", convertToString(downloadStream));
 
     // update resource data
-    String resourceHash2 = UUID.randomUUID().toString();
-    String resourceKey2 = S3Backend.getResourceKey("download_service_4", resource, resourceHash2);
-    s3.putObject(BUCKET_NAME, resourceKey2, "resource_data_2");
-
-    String versionKey2 = S3Backend.getVersionKey("download_service_4", resource, "2");
-    s3.putObject(BUCKET_NAME, versionKey2, resourceHash2);
-    s3.putObject(BUCKET_NAME, latestKey, "2");
+    String fileName2 = S3Backend.getWarmingQueriesFileName();
+    s3.putObject(BUCKET_NAME, prefix + fileName2, "resource_data_2");
+    s3.putObject(BUCKET_NAME, currentKey, fileName2);
 
     downloadStream =
-        s3Backend.downloadStream(
-            "download_service_4", "download_index_4", IndexResourceType.WARMING_QUERIES);
+        s3Backend.downloadWarmingQueries("download_warming_service_4", "download_index_4");
     assertEquals("resource_data_2", convertToString(downloadStream));
   }
 
   @Test
-  public void testUploadFile() throws IOException {
-    File uploadFile = folder.newFile("upload_file");
-    Files.write(uploadFile.toPath(), "file_data".getBytes());
+  public void testUploadWarmingQueries() throws IOException {
+    byte[] data = "file_data".getBytes(StandardCharsets.UTF_8);
+    s3Backend.uploadWarmingQueries(
+        "upload_warming_service", "upload_index", new ByteArrayInputStream(data), data.length);
 
-    s3Backend.uploadFile(
-        "upload_service", "upload_index", IndexResourceType.WARMING_QUERIES, uploadFile.toPath());
+    String prefix =
+        S3Backend.warmingQueriesResourcePrefix("upload_warming_service", "upload_index");
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    String contents = convertToString(s3.getObject(BUCKET_NAME, currentKey).getObjectContent());
+    assertWarmingVersion(contents);
 
-    String resource = S3Backend.getResourceName("upload_index", IndexResourceType.WARMING_QUERIES);
-    String latestKey =
-        S3Backend.getVersionKey("upload_service", resource, S3Backend.LATEST_VERSION);
-    String contents = convertToString(s3.getObject(BUCKET_NAME, latestKey).getObjectContent());
-    assertEquals("0", contents);
-
-    String versionKey = S3Backend.getVersionKey("upload_service", resource, "0");
+    String versionKey = prefix + contents;
     contents = convertToString(s3.getObject(BUCKET_NAME, versionKey).getObjectContent());
-    // check parsable
-    UUID.fromString(contents);
-
-    String resourceKey = S3Backend.getResourceKey("upload_service", resource, contents);
-    contents = convertToString(s3.getObject(BUCKET_NAME, resourceKey).getObjectContent());
     assertEquals("file_data", contents);
   }
 
   @Test
-  public void testUploadFile_updateResource() throws IOException {
-    File uploadFile = folder.newFile("upload_file_1");
-    Files.write(uploadFile.toPath(), "file_data_1".getBytes());
+  public void testUploadWarmingQueries_updateResource() throws IOException {
+    byte[] data = "file_data_1".getBytes(StandardCharsets.UTF_8);
+    s3Backend.uploadWarmingQueries(
+        "upload_warming_service_1", "upload_index_1", new ByteArrayInputStream(data), data.length);
 
-    s3Backend.uploadFile(
-        "upload_service_1",
-        "upload_index_1",
-        IndexResourceType.WARMING_QUERIES,
-        uploadFile.toPath());
+    String prefix =
+        S3Backend.warmingQueriesResourcePrefix("upload_warming_service_1", "upload_index_1");
+    String currentKey = prefix + S3Backend.CURRENT_VERSION;
+    String contents = convertToString(s3.getObject(BUCKET_NAME, currentKey).getObjectContent());
+    assertWarmingVersion(contents);
 
-    String resource =
-        S3Backend.getResourceName("upload_index_1", IndexResourceType.WARMING_QUERIES);
-    String latestKey =
-        S3Backend.getVersionKey("upload_service_1", resource, S3Backend.LATEST_VERSION);
-    String contents = convertToString(s3.getObject(BUCKET_NAME, latestKey).getObjectContent());
-    assertEquals("0", contents);
-
-    String versionKey = S3Backend.getVersionKey("upload_service_1", resource, "0");
+    String versionKey = prefix + contents;
     contents = convertToString(s3.getObject(BUCKET_NAME, versionKey).getObjectContent());
-    // check parsable
-    UUID.fromString(contents);
-
-    String resourceKey = S3Backend.getResourceKey("upload_service_1", resource, contents);
-    contents = convertToString(s3.getObject(BUCKET_NAME, resourceKey).getObjectContent());
     assertEquals("file_data_1", contents);
 
     // update data
-    uploadFile = folder.newFile("upload_file_2");
-    Files.write(uploadFile.toPath(), "file_data_2".getBytes());
+    data = "file_data_2".getBytes(StandardCharsets.UTF_8);
 
-    s3Backend.uploadFile(
-        "upload_service_1",
-        "upload_index_1",
-        IndexResourceType.WARMING_QUERIES,
-        uploadFile.toPath());
+    s3Backend.uploadWarmingQueries(
+        "upload_warming_service_1", "upload_index_1", new ByteArrayInputStream(data), data.length);
 
-    contents = convertToString(s3.getObject(BUCKET_NAME, latestKey).getObjectContent());
-    assertEquals("1", contents);
+    contents = convertToString(s3.getObject(BUCKET_NAME, currentKey).getObjectContent());
+    assertWarmingVersion(contents);
 
-    versionKey = S3Backend.getVersionKey("upload_service_1", resource, "1");
+    versionKey = prefix + contents;
     contents = convertToString(s3.getObject(BUCKET_NAME, versionKey).getObjectContent());
-    // check parsable
-    UUID.fromString(contents);
-
-    resourceKey = S3Backend.getResourceKey("upload_service_1", resource, contents);
-    contents = convertToString(s3.getObject(BUCKET_NAME, resourceKey).getObjectContent());
     assertEquals("file_data_2", contents);
   }
 
   @Test
-  public void testUploadFile_notExist() throws IOException {
-    Path path = Path.of(folder.getRoot().toString(), "not_exist");
-    try {
-      s3Backend.uploadFile(
-          "upload_service_2", "upload_index_2", IndexResourceType.WARMING_QUERIES, path);
-      fail();
-    } catch (IllegalArgumentException e) {
-      assertTrue(e.getMessage().startsWith("File does not exist:"));
-      assertTrue(e.getMessage().contains("not_exist"));
-    }
-  }
-
-  @Test
-  public void testUploadFile_notRegularFile() throws IOException {
-    Path path = folder.newFolder("upload_folder").toPath();
-    try {
-      s3Backend.uploadFile(
-          "upload_service_3", "upload_index_3", IndexResourceType.WARMING_QUERIES, path);
-      fail();
-    } catch (IllegalArgumentException e) {
-      assertTrue(e.getMessage().startsWith("Is not regular file:"));
-      assertTrue(e.getMessage().contains("upload_folder"));
-    }
-  }
-
-  @Test
-  public void testGetResourceName() {
+  public void testWarmingQueriesResourcePrefix() {
     assertEquals(
-        "index_1_warming_queries",
-        S3Backend.getResourceName("index_1", IndexResourceType.WARMING_QUERIES));
+        "service/index/warming/", S3Backend.warmingQueriesResourcePrefix("service", "index"));
   }
 
   @Test
-  public void testGetResourceKey() {
-    assertEquals(
-        "test_service/test_resource/test_version_hash",
-        S3Backend.getResourceKey("test_service", "test_resource", "test_version_hash"));
+  public void testGetWarmingQueriesFileName() {
+    String fileName = S3Backend.getWarmingQueriesFileName();
+    assertWarmingVersion(fileName);
   }
 
-  @Test
-  public void testGetVersionKey() {
-    assertEquals(
-        "test_service/_version/test_resource/version",
-        S3Backend.getVersionKey("test_service", "test_resource", "version"));
+  private void assertWarmingVersion(String warmingVersion) {
+    String[] splits = warmingVersion.split("-", 2);
+    assertEquals(2, splits.length);
+    // check parsable
+    TimeStringUtil.isTimeStringSec(splits[0]);
+    UUID.fromString(splits[1]);
   }
 
   @Test
@@ -611,6 +516,19 @@ public class S3BackendTest {
     String prefix = "service_get_current/resource/";
     s3.putObject(BUCKET_NAME, prefix + S3Backend.CURRENT_VERSION, "current_version_name");
     assertEquals("current_version_name", s3Backend.getCurrentResourceName(prefix));
+  }
+
+  @Test
+  public void testGetCurrentResourceName_notFound() throws IOException {
+    String prefix = "service_get_current_not_found/resource/";
+    try {
+      s3Backend.getCurrentResourceName(prefix);
+      fail();
+    } catch (IllegalArgumentException e) {
+      assertEquals(
+          "Object s3://s3-backend-test/service_get_current_not_found/resource/_current not found",
+          e.getMessage());
+    }
   }
 
   @Test
