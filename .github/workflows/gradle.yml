@@ -52,7 +52,7 @@ jobs:
           git pull --rebase origin ${{ inputs.branch }}
           git push
         fi
-    - name: Upload JaCoCo coverage report
+    - name: Upload JaCoCo coverage report 
       uses: actions/upload-artifact@v2
       with:
         name: jacoco-report
