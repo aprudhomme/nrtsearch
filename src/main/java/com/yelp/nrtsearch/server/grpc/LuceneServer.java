@@ -1359,7 +1359,7 @@ public class LuceneServer {
         List<String> indicesNotStarted = new ArrayList<>();
         for (String indexName : indexNames) {
           // The ready endpoint should skip loading index state
-          IndexState indexState = globalState.getIndex(indexName, true);
+          IndexState indexState = globalState.getIndex(indexName);
           if (!indexState.isStarted()) {
             indicesNotStarted.add(indexName);
           }
@@ -1786,6 +1786,17 @@ public class LuceneServer {
       }
     }
 
+    static IndexStateManager getIndexStateManagerOrThrow(GlobalState globalState, String indexName)
+        throws IOException {
+      IndexStateManager indexStateManager = globalState.getIndexStateManager(indexName, false);
+      if (indexStateManager == null) {
+        throw Status.FAILED_PRECONDITION
+            .withDescription("Index not found: " + indexName)
+            .asRuntimeException();
+      }
+      return indexStateManager;
+    }
+
     public ReplicationServerImpl(GlobalState globalState, boolean verifyIndexId) {
       this.globalState = globalState;
       this.verifyIndexId = verifyIndexId;
@@ -1797,7 +1808,7 @@ public class LuceneServer {
         StreamObserver<AddReplicaResponse> responseStreamObserver) {
       try {
         IndexStateManager indexStateManager =
-            globalState.getIndexStateManager(addReplicaRequest.getIndexName());
+            getIndexStateManagerOrThrow(globalState, addReplicaRequest.getIndexName());
         checkIndexId(addReplicaRequest.getIndexId(), indexStateManager.getIndexId(), verifyIndexId);
 
         IndexState indexState = indexStateManager.getCurrent();
@@ -1909,7 +1920,7 @@ public class LuceneServer {
         FileInfo fileInfoRequest, StreamObserver<RawFileChunk> rawFileChunkStreamObserver) {
       try {
         IndexStateManager indexStateManager =
-            globalState.getIndexStateManager(fileInfoRequest.getIndexName());
+            getIndexStateManagerOrThrow(globalState, fileInfoRequest.getIndexName());
         checkIndexId(fileInfoRequest.getIndexId(), indexStateManager.getIndexId(), verifyIndexId);
 
         IndexState indexState = indexStateManager.getCurrent();
@@ -1973,7 +1984,7 @@ public class LuceneServer {
             if (indexState == null) {
               // Start transfer
               IndexStateManager indexStateManager =
-                  globalState.getIndexStateManager(fileInfoRequest.getIndexName());
+                  getIndexStateManagerOrThrow(globalState, fileInfoRequest.getIndexName());
               checkIndexId(
                   fileInfoRequest.getIndexId(), indexStateManager.getIndexId(), verifyIndexId);
 
@@ -2074,7 +2085,7 @@ public class LuceneServer {
         CopyStateRequest request, StreamObserver<CopyState> responseObserver) {
       try {
         IndexStateManager indexStateManager =
-            globalState.getIndexStateManager(request.getIndexName());
+            getIndexStateManagerOrThrow(globalState, request.getIndexName());
         checkIndexId(request.getIndexId(), indexStateManager.getIndexId(), verifyIndexId);
 
         IndexState indexState = indexStateManager.getCurrent();
@@ -2108,7 +2119,7 @@ public class LuceneServer {
     public void copyFiles(CopyFiles request, StreamObserver<TransferStatus> responseObserver) {
       try {
         IndexStateManager indexStateManager =
-            globalState.getIndexStateManager(request.getIndexName());
+            getIndexStateManagerOrThrow(globalState, request.getIndexName());
         checkIndexId(request.getIndexId(), indexStateManager.getIndexId(), verifyIndexId);
 
         IndexState indexState = indexStateManager.getCurrent();
@@ -2140,7 +2151,7 @@ public class LuceneServer {
     public void newNRTPoint(NewNRTPoint request, StreamObserver<TransferStatus> responseObserver) {
       try {
         IndexStateManager indexStateManager =
-            globalState.getIndexStateManager(request.getIndexName());
+            getIndexStateManagerOrThrow(globalState, request.getIndexName());
         checkIndexId(request.getIndexId(), indexStateManager.getIndexId(), verifyIndexId);
 
         IndexState indexState = indexStateManager.getCurrent();

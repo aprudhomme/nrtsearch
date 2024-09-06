@@ -198,19 +198,52 @@ public abstract class GlobalState implements Closeable {
   /** Create a new index based on the given create request. */
   public abstract IndexState createIndex(CreateIndexRequest createIndexRequest) throws IOException;
 
-  public abstract IndexState getIndex(String name, boolean hasRestore) throws IOException;
+  /**
+   * Get the {@link IndexState} by index name.
+   *
+   * @param name index name
+   * @param throwIfNotFound if true, throw an exception if the index does not exist, otherwise
+   *     return null
+   * @return index state, or null if the index does not exist and throwIfNotFound is false
+   * @throws IOException on error reading index data
+   */
+  public abstract IndexState getIndex(String name, boolean throwIfNotFound) throws IOException;
 
-  /** Get the {@link IndexState} by index name. */
-  public abstract IndexState getIndex(String name) throws IOException;
+  /**
+   * Get the {@link IndexState} by index name.
+   *
+   * @param name index name
+   * @return index state
+   * @throws IllegalArgumentException if the index does not exist
+   * @throws IOException on error reading index data
+   */
+  public IndexState getIndex(String name) throws IOException {
+    return getIndex(name, true);
+  }
+
+  /**
+   * Get the state manager for a given index.
+   *
+   * @param name index name
+   * @param throwIfNotFound if true, throw an exception if the index does not exist, otherwise
+   *     return null
+   * @return state manager, or null if the index does not exist and throwIfNotFound is false
+   * @throws IOException on error reading index data
+   */
+  public abstract IndexStateManager getIndexStateManager(String name, boolean throwIfNotFound)
+      throws IOException;
 
   /**
    * Get the state manager for a given index.
    *
    * @param name index name
    * @return state manager
+   * @throws IllegalArgumentException if the index does not exist
    * @throws IOException on error reading index data
    */
-  public abstract IndexStateManager getIndexStateManager(String name) throws IOException;
+  public IndexStateManager getIndexStateManager(String name) throws IOException {
+    return getIndexStateManager(name, true);
+  }
 
   /**
    * Reload state from backend

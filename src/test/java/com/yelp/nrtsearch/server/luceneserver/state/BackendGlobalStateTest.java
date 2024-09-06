@@ -16,6 +16,7 @@
 package com.yelp.nrtsearch.server.luceneserver.state;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -298,6 +299,46 @@ public class BackendGlobalStateTest {
     } catch (IllegalArgumentException e) {
       assertEquals("index \"invalid\" was not saved or committed", e.getMessage());
     }
+  }
+
+  @Test
+  public void testGetIndexStateManagerNotPresent_noThrow() throws IOException {
+    StateBackend mockBackend = mock(StateBackend.class);
+    GlobalStateInfo initialState = GlobalStateInfo.newBuilder().build();
+    when(mockBackend.loadOrCreateGlobalState()).thenReturn(initialState);
+
+    MockBackendGlobalState.stateBackend = mockBackend;
+    BackendGlobalState backendGlobalState = new MockBackendGlobalState(getConfig(), null);
+    IndexStateManager indexStateManager = backendGlobalState.getIndexStateManager("invalid", false);
+    assertNull(indexStateManager);
+  }
+
+  @Test
+  public void testGetIndexNotPresent() throws IOException {
+    StateBackend mockBackend = mock(StateBackend.class);
+    GlobalStateInfo initialState = GlobalStateInfo.newBuilder().build();
+    when(mockBackend.loadOrCreateGlobalState()).thenReturn(initialState);
+
+    MockBackendGlobalState.stateBackend = mockBackend;
+    BackendGlobalState backendGlobalState = new MockBackendGlobalState(getConfig(), null);
+    try {
+      backendGlobalState.getIndex("invalid");
+      fail();
+    } catch (IllegalArgumentException e) {
+      assertEquals("index \"invalid\" was not saved or committed", e.getMessage());
+    }
+  }
+
+  @Test
+  public void testGetIndexNotPresent_noThrow() throws IOException {
+    StateBackend mockBackend = mock(StateBackend.class);
+    GlobalStateInfo initialState = GlobalStateInfo.newBuilder().build();
+    when(mockBackend.loadOrCreateGlobalState()).thenReturn(initialState);
+
+    MockBackendGlobalState.stateBackend = mockBackend;
+    BackendGlobalState backendGlobalState = new MockBackendGlobalState(getConfig(), null);
+    IndexState indexState = backendGlobalState.getIndex("invalid", false);
+    assertNull(indexState);
   }
 
   @Test

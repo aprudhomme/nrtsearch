@@ -316,20 +316,20 @@ public class BackendGlobalState extends GlobalState {
   }
 
   @Override
-  public IndexState getIndex(String name, boolean hasRestore) throws IOException {
-    return getIndexStateManager(name).getCurrent();
+  public IndexState getIndex(String name, boolean throwIfNotFound) throws IOException {
+    IndexStateManager stateManager = getIndexStateManager(name, throwIfNotFound);
+    return stateManager == null ? null : stateManager.getCurrent();
   }
 
   @Override
-  public IndexState getIndex(String name) throws IOException {
-    return getIndex(name, false);
-  }
-
-  @Override
-  public IndexStateManager getIndexStateManager(String name) throws IOException {
+  public IndexStateManager getIndexStateManager(String name, boolean throwIfNotFound)
+      throws IOException {
     IndexStateManager stateManager = immutableState.indexStateManagerMap.get(name);
     if (stateManager == null) {
-      throw new IllegalArgumentException("index \"" + name + "\" was not saved or committed");
+      if (throwIfNotFound) {
+        throw new IllegalArgumentException("index \"" + name + "\" was not saved or committed");
+      }
+      return null;
     }
     return stateManager;
   }
