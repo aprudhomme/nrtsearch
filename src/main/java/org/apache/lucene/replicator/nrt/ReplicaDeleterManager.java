@@ -42,7 +42,6 @@ public class ReplicaDeleterManager {
           Collection<String> indexFiles =
               SegmentInfos.readCommit(replicaNode.getDirectory(), segmentsFileName).files(false);
           removableFiles.addAll(indexFiles);
-          removableFiles.add(segmentsFileName);
           replicaNode.deleter.decRef(removableFiles);
         }
       }

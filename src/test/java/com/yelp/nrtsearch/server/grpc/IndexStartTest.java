@@ -18,6 +18,7 @@ package com.yelp.nrtsearch.server.grpc;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -27,8 +28,10 @@ import com.yelp.nrtsearch.server.config.IndexStartConfig.IndexDataLocationType;
 import com.yelp.nrtsearch.server.luceneserver.NRTReplicaNode;
 import io.grpc.StatusRuntimeException;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Set;
 import org.apache.lucene.replicator.nrt.ReplicaDeleterManager;
 import org.junit.After;
 import org.junit.Rule;
@@ -819,7 +822,7 @@ public class IndexStartTest {
         replicaServer.getGlobalState().getIndex("test_index").getShard(0).nrtReplicaNode;
     ReplicaDeleterManager rdm = nrtReplicaNode.getReplicaDeleterManager();
 
-    assertFalse(rdm == null);
+    assertNotNull(rdm);
 
     server.deleteAllDocuments("test_index");
     server.refresh("test_index");
@@ -830,8 +833,8 @@ public class IndexStartTest {
 
     replicaServer.verifySimpleDocs("test_index", 0);
     String[] replicaFiles = nrtReplicaNode.getDirectory().listAll();
-    assertEquals(1, replicaFiles.length);
-    assertEquals("write.lock", replicaFiles[0]);
+    Set<String> replicaFilesSet = new HashSet<>(Arrays.asList(replicaFiles));
+    assertEquals(Set.of("segments_2", "write.lock"), replicaFilesSet);
   }
 
   @Test
