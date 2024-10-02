@@ -42,6 +42,7 @@ import com.yelp.nrtsearch.server.luceneserver.field.properties.PolygonQueryable;
 import com.yelp.nrtsearch.server.luceneserver.field.properties.RangeQueryable;
 import com.yelp.nrtsearch.server.luceneserver.field.properties.TermQueryable;
 import com.yelp.nrtsearch.server.luceneserver.script.ScoreScript;
+import com.yelp.nrtsearch.server.luceneserver.script.ScoreScriptValueSourceWrapper;
 import com.yelp.nrtsearch.server.luceneserver.script.ScriptService;
 import com.yelp.nrtsearch.server.luceneserver.search.query.MatchCrossFieldsQuery;
 import com.yelp.nrtsearch.server.luceneserver.search.query.MatchPhrasePrefixQuery;
@@ -307,7 +308,7 @@ public class QueryNodeMapper {
         ScriptParamsUtils.decodeParams(functionScoreQuery.getScript().getParamsMap());
     return new FunctionScoreQuery(
         getQuery(functionScoreQuery.getQuery(), state, docLookup),
-        scriptFactory.newFactory(params, docLookup));
+        new ScoreScriptValueSourceWrapper(scriptFactory.newFactory(params, docLookup)));
   }
 
   private FunctionMatchQuery getFunctionFilterQuery(
@@ -317,7 +318,7 @@ public class QueryNodeMapper {
     Map<String, Object> params =
         ScriptParamsUtils.decodeParams(functionFilterQuery.getScript().getParamsMap());
     return new FunctionMatchQuery(
-        scriptFactory.newFactory(params, state.docLookup), score -> score > 0);
+        new ScoreScriptValueSourceWrapper(scriptFactory.newFactory(params, state.docLookup)), score -> score > 0);
   }
 
   private Query getTermQuery(com.yelp.nrtsearch.server.grpc.TermQuery termQuery, IndexState state) {

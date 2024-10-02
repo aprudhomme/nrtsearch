@@ -21,6 +21,8 @@ import com.yelp.nrtsearch.server.luceneserver.script.ScriptEngine;
 import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Map;
+
+import com.yelp.nrtsearch.server.luceneserver.script.ValuesSourceScoreScriptWrapper;
 import org.apache.lucene.expressions.Bindings;
 import org.apache.lucene.expressions.Expression;
 import org.apache.lucene.expressions.js.JavascriptCompiler;
@@ -86,7 +88,7 @@ public class JsScriptEngine implements ScriptEngine {
             fieldBindings = docLookup.getIndexState().getExpressionBindings();
             scriptParams = params;
           }
-          return expr.getDoubleValuesSource(new JsScriptBindings(fieldBindings, scriptParams));
+          return new ValuesSourceScoreScriptWrapper(expr.getDoubleValuesSource(new JsScriptBindings(fieldBindings, scriptParams)));
         });
     return context.factoryClazz.cast(factory);
   }

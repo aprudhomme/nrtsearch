@@ -32,7 +32,7 @@ import org.apache.lucene.search.IndexSearcher;
  * script has access to the query parameters, the document doc values through {@link
  * SegmentDocLookup}, and the document score through get_score.
  */
-public abstract class ScoreScript extends DoubleValues {
+public abstract class ScoreScript {
   private static final int DOC_UNSET = -1;
 
   private final Map<String, Object> params;
@@ -70,27 +70,15 @@ public abstract class ScoreScript extends DoubleValues {
   public abstract double execute();
 
   /**
-   * Redirect {@link DoubleValues} interface to get script execution result.
-   *
-   * @return script execution result
-   */
-  @Override
-  public double doubleValue() {
-    return execute();
-  }
-
-  /**
    * Advance script to a given segment document.
    *
    * @param doc segment doc id
    * @return if there is data for the given id, this should always be the case
    */
-  @Override
-  public boolean advanceExact(int doc) {
+  public void setDocId(int doc) {
     segmentDocLookup.setDocId(doc);
     docId = doc;
     scoreDocId = DOC_UNSET;
-    return true;
   }
 
   /**
@@ -132,7 +120,13 @@ public abstract class ScoreScript extends DoubleValues {
      * @param docLookup index level doc value lookup provider
      * @return {@link DoubleValuesSource} to evaluate script
      */
-    DoubleValuesSource newFactory(Map<String, Object> params, DocLookup docLookup);
+    SegmentFactory newFactory(Map<String, Object> params, DocLookup docLookup);
+  }
+
+  public interface SegmentFactory {
+    ScoreScript newInstance(LeafReaderContext context, DoubleValues scores);
+
+    boolean needs_score();
   }
 
   // compile context for the ScoreScript, contains script type info
@@ -148,84 +142,84 @@ public abstract class ScoreScript extends DoubleValues {
    * <p>This class conforms with the script compile contract, see {@link ScriptContext}. However,
    * Engines are also free to create there own {@link DoubleValuesSource} implementations instead.
    */
-  public abstract static class SegmentFactory extends DoubleValuesSource {
-    private final Map<String, Object> params;
-    private final DocLookup docLookup;
-
-    public SegmentFactory(Map<String, Object> params, DocLookup docLookup) {
-      this.params = params;
-      this.docLookup = docLookup;
-    }
-
-    public Map<String, Object> getParams() {
-      return params;
-    }
-
-    public DocLookup getDocLookup() {
-      return docLookup;
-    }
-
-    /**
-     * Create a {@link DoubleValues} instance for the given lucene segment.
-     *
-     * @param context segment context
-     * @param scores provider of segment document scores
-     * @return script to produce values for the given segment
-     */
-    public abstract DoubleValues newInstance(LeafReaderContext context, DoubleValues scores);
-
-    /**
-     * Get if this script will need access to the document score.
-     *
-     * @return if this script uses the document score.
-     */
-    public abstract boolean needs_score();
-
-    /** Redirect {@link DoubleValuesSource} interface to script contract method. */
-    @Override
-    public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
-      return newInstance(ctx, scores);
-    }
-
-    /** Redirect {@link DoubleValuesSource} interface to script contract method. */
-    @Override
-    public boolean needsScores() {
-      return needs_score();
-    }
-
-    @Override
-    public DoubleValuesSource rewrite(IndexSearcher reader) {
-      return this;
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(params, docLookup);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (obj == null) {
-        return false;
-      }
-      if (obj.getClass() != this.getClass()) {
-        return false;
-      }
-      SegmentFactory factory = (SegmentFactory) obj;
-      return Objects.equals(factory.params, this.params)
-          && Objects.equals(factory.docLookup, this.docLookup);
-    }
-
-    @Override
-    public String toString() {
-      return "ScoreScriptDoubleValuesSource: params: " + params + ", docLookup: " + docLookup;
-    }
-
-    @Override
-    public boolean isCacheable(LeafReaderContext ctx) {
-      // It would be possible to cache this if we can verify no doc values for this segment have
-      // been updated
-      return false;
-    }
-  }
+//  public abstract static class SegmentFactory extends DoubleValuesSource {
+//    private final Map<String, Object> params;
+//    private final DocLookup docLookup;
+//
+//    public SegmentFactory(Map<String, Object> params, DocLookup docLookup) {
+//      this.params = params;
+//      this.docLookup = docLookup;
+//    }
+//
+//    public Map<String, Object> getParams() {
+//      return params;
+//    }
+//
+//    public DocLookup getDocLookup() {
+//      return docLookup;
+//    }
+//
+//    /**
+//     * Create a {@link DoubleValues} instance for the given lucene segment.
+//     *
+//     * @param context segment context
+//     * @param scores provider of segment document scores
+//     * @return script to produce values for the given segment
+//     */
+//    public abstract DoubleValues newInstance(LeafReaderContext context, DoubleValues scores);
+//
+//    /**
+//     * Get if this script will need access to the document score.
+//     *
+//     * @return if this script uses the document score.
+//     */
+//    public abstract boolean needs_score();
+//
+//    /** Redirect {@link DoubleValuesSource} interface to script contract method. */
+//    @Override
+//    public DoubleValues getValues(LeafReaderContext ctx, DoubleValues scores) throws IOException {
+//      return newInstance(ctx, scores);
+//    }
+//
+//    /** Redirect {@link DoubleValuesSource} interface to script contract method. */
+//    @Override
+//    public boolean needsScores() {
+//      return needs_score();
+//    }
+//
+//    @Override
+//    public DoubleValuesSource rewrite(IndexSearcher reader) {
+//      return this;
+//    }
+//
+//    @Override
+//    public int hashCode() {
+//      return Objects.hash(params, docLookup);
+//    }
+//
+//    @Override
+//    public boolean equals(Object obj) {
+//      if (obj == null) {
+//        return false;
+//      }
+//      if (obj.getClass() != this.getClass()) {
+//        return false;
+//      }
+//      SegmentFactory factory = (SegmentFactory) obj;
+//      return Objects.equals(factory.params, this.params)
+//          && Objects.equals(factory.docLookup, this.docLookup);
+//    }
+//
+//    @Override
+//    public String toString() {
+//      return "ScoreScriptDoubleValuesSource: params: " + params + ", docLookup: " + docLookup;
+//    }
+//
+//    @Override
+//    public boolean isCacheable(LeafReaderContext ctx) {
+//      // It would be possible to cache this if we can verify no doc values for this segment have
+//      // been updated
+//      return false;
+//    }
+//  }
 }
