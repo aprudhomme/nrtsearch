@@ -129,7 +129,7 @@ Example server configuration
    * - search.threadNamePrefix
      - string
      - Name prefix for threads created by searcher threadpool executor
-     - LuceneSearchExecutor
+     - SearchExecutor
 
    * - index.maxThreads
      - int
@@ -144,22 +144,22 @@ Example server configuration
    * - index.threadNamePrefix
      - string
      - Name prefix for threads created by indexing threadpool executor
-     - LuceneIndexingExecutor
+     - IndexingExecutor
 
-   * - luceneserver.maxThreads
+   * - server.maxThreads
      - int
-     - Size of LuceneServer threadpool executor
+     - Size of gRPC server threadpool executor
      - numCPUs + 1
 
-   * - luceneserver.maxBufferedItems
+   * - server.maxBufferedItems
      - int
-     - Max tasks that can be queued by LuceneServer threadpool executor
+     - Max tasks that can be queued by gRPC server threadpool executor
      - max(200, 2 * (numCPUs + 1))
 
-   * - luceneserver.threadNamePrefix
+   * - server.threadNamePrefix
      - string
-     - Name prefix for threads created by LuceneServer threadpool executor
-     - GrpcLuceneServerExecutor
+     - Name prefix for threads created by gRPC server threadpool executor
+     - GrpcServerExecutor
 
    * - replicationserver.maxThreads
      - int
@@ -189,7 +189,7 @@ Example server configuration
    * - fetch.threadNamePrefix
      - string
      - Name prefix for threads created by fetch threadpool executor
-     - LuceneFetchExecutor
+     - FetchExecutor
 
    * - grpc.maxThreads
      - int

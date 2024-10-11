@@ -34,9 +34,8 @@ public class ThreadPoolConfiguration {
   public static final int DEFAULT_INDEXING_BUFFERED_ITEMS =
       Math.max(200, 2 * DEFAULT_INDEXING_THREADS);
 
-  public static final int DEFAULT_GRPC_LUCENESERVER_THREADS = DEFAULT_INDEXING_THREADS;
-  public static final int DEFAULT_GRPC_LUCENESERVER_BUFFERED_ITEMS =
-      DEFAULT_INDEXING_BUFFERED_ITEMS;
+  public static final int DEFAULT_GRPC_SERVER_THREADS = DEFAULT_INDEXING_THREADS;
+  public static final int DEFAULT_GRPC_SERVER_BUFFERED_ITEMS = DEFAULT_INDEXING_BUFFERED_ITEMS;
 
   public static final int DEFAULT_GRPC_REPLICATIONSERVER_THREADS = DEFAULT_INDEXING_THREADS;
   public static final int DEFAULT_GRPC_REPLICATIONSERVER_BUFFERED_ITEMS =
@@ -55,6 +54,9 @@ public class ThreadPoolConfiguration {
   public static final int DEFAULT_VECTOR_MERGE_BUFFERED_ITEMS =
       Math.max(100, 2 * DEFAULT_VECTOR_MERGE_THREADS);
 
+  public static final int DEFAULT_REMOTE_THREADS = 20;
+  public static final int DEFAULT_REMOTE_BUFFERED_ITEMS = Integer.MAX_VALUE;
+
   /**
    * Settings for a {@link ExecutorFactory.ExecutorType}.
    *
@@ -69,17 +71,15 @@ public class ThreadPoolConfiguration {
           Map.of(
               ExecutorFactory.ExecutorType.SEARCH,
               new ThreadPoolSettings(
-                  DEFAULT_SEARCHING_THREADS, DEFAULT_SEARCH_BUFFERED_ITEMS, "LuceneSearchExecutor"),
+                  DEFAULT_SEARCHING_THREADS, DEFAULT_SEARCH_BUFFERED_ITEMS, "SearchExecutor"),
               ExecutorFactory.ExecutorType.INDEX,
               new ThreadPoolSettings(
-                  DEFAULT_INDEXING_THREADS,
-                  DEFAULT_INDEXING_BUFFERED_ITEMS,
-                  "LuceneIndexingExecutor"),
-              ExecutorFactory.ExecutorType.LUCENESERVER,
+                  DEFAULT_INDEXING_THREADS, DEFAULT_INDEXING_BUFFERED_ITEMS, "IndexingExecutor"),
+              ExecutorFactory.ExecutorType.SERVER,
               new ThreadPoolSettings(
-                  DEFAULT_GRPC_LUCENESERVER_THREADS,
-                  DEFAULT_GRPC_LUCENESERVER_BUFFERED_ITEMS,
-                  "GrpcLuceneServerExecutor"),
+                  DEFAULT_GRPC_SERVER_THREADS,
+                  DEFAULT_GRPC_SERVER_BUFFERED_ITEMS,
+                  "GrpcServerExecutor"),
               ExecutorFactory.ExecutorType.REPLICATIONSERVER,
               new ThreadPoolSettings(
                   DEFAULT_GRPC_REPLICATIONSERVER_THREADS,
@@ -87,7 +87,7 @@ public class ThreadPoolConfiguration {
                   "GrpcReplicationServerExecutor"),
               ExecutorFactory.ExecutorType.FETCH,
               new ThreadPoolSettings(
-                  DEFAULT_FETCH_THREADS, DEFAULT_FETCH_BUFFERED_ITEMS, "LuceneFetchExecutor"),
+                  DEFAULT_FETCH_THREADS, DEFAULT_FETCH_BUFFERED_ITEMS, "FetchExecutor"),
               ExecutorFactory.ExecutorType.GRPC,
               new ThreadPoolSettings(
                   DEFAULT_GRPC_THREADS, DEFAULT_GRPC_BUFFERED_ITEMS, "GrpcExecutor"),
@@ -98,7 +98,10 @@ public class ThreadPoolConfiguration {
               new ThreadPoolSettings(
                   DEFAULT_VECTOR_MERGE_THREADS,
                   DEFAULT_VECTOR_MERGE_BUFFERED_ITEMS,
-                  "VectorMergeExecutor"));
+                  "VectorMergeExecutor"),
+              ExecutorFactory.ExecutorType.REMOTE,
+              new ThreadPoolSettings(
+                  DEFAULT_REMOTE_THREADS, DEFAULT_REMOTE_BUFFERED_ITEMS, "RemoteExecutor"));
 
   private final Map<ExecutorFactory.ExecutorType, ThreadPoolSettings> threadPoolSettings;
 

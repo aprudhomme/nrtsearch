@@ -36,12 +36,13 @@ public class ExecutorFactory {
   public enum ExecutorType {
     SEARCH,
     INDEX,
-    LUCENESERVER,
+    SERVER,
     REPLICATIONSERVER,
     FETCH,
     GRPC,
     METRICS,
-    VECTORMERGE
+    VECTORMERGE,
+    REMOTE
   }
 
   private static final Logger logger = LoggerFactory.getLogger(ExecutorFactory.class);

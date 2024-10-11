@@ -108,12 +108,11 @@ public class ExecutorFactoryTest {
     init();
     ThreadPoolExecutor executor =
         (ThreadPoolExecutor)
-            ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.LUCENESERVER);
-    assertEquals(
-        executor.getCorePoolSize(), ThreadPoolConfiguration.DEFAULT_GRPC_LUCENESERVER_THREADS);
+            ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.SERVER);
+    assertEquals(executor.getCorePoolSize(), ThreadPoolConfiguration.DEFAULT_GRPC_SERVER_THREADS);
     assertEquals(
         executor.getQueue().remainingCapacity(),
-        ThreadPoolConfiguration.DEFAULT_GRPC_LUCENESERVER_BUFFERED_ITEMS);
+        ThreadPoolConfiguration.DEFAULT_GRPC_SERVER_BUFFERED_ITEMS);
   }
 
   @Test
@@ -122,12 +121,12 @@ public class ExecutorFactoryTest {
         String.join(
             "\n",
             "threadPoolConfiguration:",
-            "  luceneserver:",
+            "  server:",
             "    maxThreads: 5",
             "    maxBufferedItems: 10"));
     ThreadPoolExecutor executor =
         (ThreadPoolExecutor)
-            ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.LUCENESERVER);
+            ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.SERVER);
     assertEquals(executor.getCorePoolSize(), 5);
     assertEquals(executor.getQueue().remainingCapacity(), 10);
   }
@@ -271,6 +270,34 @@ public class ExecutorFactoryTest {
     ThreadPoolExecutor executor =
         (ThreadPoolExecutor)
             ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.VECTORMERGE);
+    assertEquals(executor.getCorePoolSize(), 5);
+    assertEquals(executor.getQueue().remainingCapacity(), 10);
+  }
+
+  @Test
+  public void testRemoteThreadPool_default() {
+    init();
+    ThreadPoolExecutor executor =
+        (ThreadPoolExecutor)
+            ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.REMOTE);
+    assertEquals(executor.getCorePoolSize(), ThreadPoolConfiguration.DEFAULT_REMOTE_THREADS);
+    assertEquals(
+        executor.getQueue().remainingCapacity(),
+        ThreadPoolConfiguration.DEFAULT_REMOTE_BUFFERED_ITEMS);
+  }
+
+  @Test
+  public void testRemoteThreadPool_set() {
+    init(
+        String.join(
+            "\n",
+            "threadPoolConfiguration:",
+            "  remote:",
+            "    maxThreads: 5",
+            "    maxBufferedItems: 10"));
+    ThreadPoolExecutor executor =
+        (ThreadPoolExecutor)
+            ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.REMOTE);
     assertEquals(executor.getCorePoolSize(), 5);
     assertEquals(executor.getQueue().remainingCapacity(), 10);
   }

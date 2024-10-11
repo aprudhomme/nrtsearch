@@ -17,8 +17,11 @@ package com.yelp.nrtsearch.server.remote.s3;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.Mockito.mock;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
@@ -27,7 +30,9 @@ import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
 import com.amazonaws.services.s3.model.PartETag;
 import com.amazonaws.services.s3.model.UploadPartRequest;
 import com.amazonaws.services.s3.model.UploadPartResult;
+import com.yelp.nrtsearch.server.concurrent.ExecutorFactory;
 import com.yelp.nrtsearch.server.config.NrtsearchConfig;
+import com.yelp.nrtsearch.server.config.ThreadPoolConfiguration;
 import com.yelp.nrtsearch.server.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.nrt.state.NrtPointState;
 import com.yelp.nrtsearch.server.remote.RemoteBackend;
@@ -47,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.apache.commons.io.IOUtils;
 import org.apache.lucene.replicator.nrt.CopyState;
 import org.apache.lucene.replicator.nrt.FileMetaData;
@@ -73,6 +79,7 @@ public class S3BackendTest {
   public static void setup() throws IOException {
     String configStr = "bucketName: " + BUCKET_NAME;
     NrtsearchConfig config = new NrtsearchConfig(new ByteArrayInputStream(configStr.getBytes()));
+    ExecutorFactory.init(config.getThreadPoolConfiguration());
     s3 = S3_PROVIDER.getAmazonS3();
     s3Backend = new S3Backend(config, s3);
     s3.putObject(BUCKET_NAME, KEY, CONTENT);
@@ -115,6 +122,26 @@ public class S3BackendTest {
     } catch (IllegalArgumentException e) {
       assertEquals(
           String.format("Object s3://%s/%s not found", "bucket_not_exist", KEY), e.getMessage());
+    }
+  }
+
+  @Test
+  public void testUsesRemoteExecutor() {
+    assertSame(
+        ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.REMOTE),
+        s3Backend.getExecutor());
+  }
+
+  @Test
+  public void testDefaultExecutor() {
+    try (S3Backend s3Backend = new S3Backend(BUCKET_NAME, false, mock(AmazonS3.class))) {
+      ThreadPoolExecutor executor = (ThreadPoolExecutor) s3Backend.getExecutor();
+      assertNotSame(
+          ExecutorFactory.getInstance().getExecutor(ExecutorFactory.ExecutorType.REMOTE), executor);
+      assertEquals(ThreadPoolConfiguration.DEFAULT_REMOTE_THREADS, executor.getCorePoolSize());
+      assertEquals(
+          ThreadPoolConfiguration.DEFAULT_REMOTE_BUFFERED_ITEMS,
+          executor.getQueue().remainingCapacity());
     }
   }
 

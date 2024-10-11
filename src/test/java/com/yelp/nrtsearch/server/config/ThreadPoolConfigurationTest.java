@@ -61,7 +61,7 @@ public class ThreadPoolConfigurationTest {
     assertEquals(
         threadPoolSettings.maxBufferedItems(),
         ThreadPoolConfiguration.DEFAULT_SEARCH_BUFFERED_ITEMS);
-    assertEquals("LuceneSearchExecutor", threadPoolSettings.threadNamePrefix());
+    assertEquals("SearchExecutor", threadPoolSettings.threadNamePrefix());
   }
 
   @Test
@@ -94,7 +94,7 @@ public class ThreadPoolConfigurationTest {
     assertEquals(
         threadPoolSettings.maxBufferedItems(),
         ThreadPoolConfiguration.DEFAULT_INDEXING_BUFFERED_ITEMS);
-    assertEquals("LuceneIndexingExecutor", threadPoolSettings.threadNamePrefix());
+    assertEquals("IndexingExecutor", threadPoolSettings.threadNamePrefix());
   }
 
   @Test
@@ -122,13 +122,13 @@ public class ThreadPoolConfigurationTest {
     ThreadPoolConfiguration threadPoolConfiguration =
         new ThreadPoolConfiguration(getReaderForConfig(config));
     ThreadPoolConfiguration.ThreadPoolSettings threadPoolSettings =
-        threadPoolConfiguration.getThreadPoolSettings(ExecutorFactory.ExecutorType.LUCENESERVER);
+        threadPoolConfiguration.getThreadPoolSettings(ExecutorFactory.ExecutorType.SERVER);
     assertEquals(
-        threadPoolSettings.maxThreads(), ThreadPoolConfiguration.DEFAULT_GRPC_LUCENESERVER_THREADS);
+        threadPoolSettings.maxThreads(), ThreadPoolConfiguration.DEFAULT_GRPC_SERVER_THREADS);
     assertEquals(
         threadPoolSettings.maxBufferedItems(),
-        ThreadPoolConfiguration.DEFAULT_GRPC_LUCENESERVER_BUFFERED_ITEMS);
-    assertEquals("GrpcLuceneServerExecutor", threadPoolSettings.threadNamePrefix());
+        ThreadPoolConfiguration.DEFAULT_GRPC_SERVER_BUFFERED_ITEMS);
+    assertEquals("GrpcServerExecutor", threadPoolSettings.threadNamePrefix());
   }
 
   @Test
@@ -137,14 +137,14 @@ public class ThreadPoolConfigurationTest {
         String.join(
             "\n",
             "threadPoolConfiguration:",
-            "  luceneserver:",
+            "  server:",
             "    maxThreads: 5",
             "    maxBufferedItems: 10",
             "    threadNamePrefix: customName");
     ThreadPoolConfiguration threadPoolConfiguration =
         new ThreadPoolConfiguration(getReaderForConfig(config));
     ThreadPoolConfiguration.ThreadPoolSettings threadPoolSettings =
-        threadPoolConfiguration.getThreadPoolSettings(ExecutorFactory.ExecutorType.LUCENESERVER);
+        threadPoolConfiguration.getThreadPoolSettings(ExecutorFactory.ExecutorType.SERVER);
     assertEquals(threadPoolSettings.maxThreads(), 5);
     assertEquals(threadPoolSettings.maxBufferedItems(), 10);
     assertEquals("customName", threadPoolSettings.threadNamePrefix());
@@ -198,7 +198,7 @@ public class ThreadPoolConfigurationTest {
     assertEquals(
         threadPoolSettings.maxBufferedItems(),
         ThreadPoolConfiguration.DEFAULT_FETCH_BUFFERED_ITEMS);
-    assertEquals("LuceneFetchExecutor", threadPoolSettings.threadNamePrefix());
+    assertEquals("FetchExecutor", threadPoolSettings.threadNamePrefix());
   }
 
   @Test
@@ -320,6 +320,39 @@ public class ThreadPoolConfigurationTest {
   }
 
   @Test
+  public void testRemoteThreadPool_default() {
+    String config = "nodeName: node1";
+    ThreadPoolConfiguration threadPoolConfiguration =
+        new ThreadPoolConfiguration(getReaderForConfig(config));
+    ThreadPoolConfiguration.ThreadPoolSettings threadPoolSettings =
+        threadPoolConfiguration.getThreadPoolSettings(ExecutorFactory.ExecutorType.REMOTE);
+    assertEquals(threadPoolSettings.maxThreads(), ThreadPoolConfiguration.DEFAULT_REMOTE_THREADS);
+    assertEquals(
+        threadPoolSettings.maxBufferedItems(),
+        ThreadPoolConfiguration.DEFAULT_REMOTE_BUFFERED_ITEMS);
+    assertEquals("RemoteExecutor", threadPoolSettings.threadNamePrefix());
+  }
+
+  @Test
+  public void testRemoteThreadPool_set() {
+    String config =
+        String.join(
+            "\n",
+            "threadPoolConfiguration:",
+            "  remote:",
+            "    maxThreads: 5",
+            "    maxBufferedItems: 10",
+            "    threadNamePrefix: customName");
+    ThreadPoolConfiguration threadPoolConfiguration =
+        new ThreadPoolConfiguration(getReaderForConfig(config));
+    ThreadPoolConfiguration.ThreadPoolSettings threadPoolSettings =
+        threadPoolConfiguration.getThreadPoolSettings(ExecutorFactory.ExecutorType.REMOTE);
+    assertEquals(threadPoolSettings.maxThreads(), 5);
+    assertEquals(threadPoolSettings.maxBufferedItems(), 10);
+    assertEquals("customName", threadPoolSettings.threadNamePrefix());
+  }
+
+  @Test
   public void partialOverride() {
     String config =
         String.join(
@@ -344,7 +377,7 @@ public class ThreadPoolConfigurationTest {
     assertEquals(
         indexThreadPoolSettings.maxThreads(), ThreadPoolConfiguration.DEFAULT_INDEXING_THREADS);
     assertEquals(indexThreadPoolSettings.maxBufferedItems(), 14);
-    assertEquals("LuceneIndexingExecutor", indexThreadPoolSettings.threadNamePrefix());
+    assertEquals("IndexingExecutor", indexThreadPoolSettings.threadNamePrefix());
   }
 
   @Test
