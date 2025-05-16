@@ -43,7 +43,15 @@ public class AtomFieldDef extends TextBaseFieldDef
 
   public AtomFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context);
+    this(name, requestField, context, null);
+  }
+
+  public AtomFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      AtomFieldDef previousField) {
+    super(name, requestField, context, previousField);
   }
 
   @Override
@@ -57,6 +65,12 @@ public class AtomFieldDef extends TextBaseFieldDef
   @Override
   public String getType() {
     return "ATOM";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new AtomFieldDef(name, requestField, context, this);
   }
 
   @Override

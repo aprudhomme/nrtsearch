@@ -44,19 +44,32 @@ import org.apache.lucene.util.BytesRef;
 
 public class ObjectFieldDef extends IndexableFieldDef<Struct> {
 
-  private final Gson gson;
+  private static final Gson GSON = new GsonBuilder().serializeNulls().create();
   private final boolean isNestedDoc;
 
   protected ObjectFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context, Struct.class);
+    this(name, requestField, context, null);
+  }
+
+  protected ObjectFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      ObjectFieldDef previousField) {
+    super(name, requestField, context, Struct.class, previousField);
     this.isNestedDoc = requestField.getNestedDoc();
-    gson = new GsonBuilder().serializeNulls().create();
   }
 
   @Override
   public String getType() {
     return "OBJECT";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new ObjectFieldDef(name, requestField, context, this);
   }
 
   @Override
@@ -72,7 +85,7 @@ public class ObjectFieldDef extends IndexableFieldDef<Struct> {
       parseFieldWithChildren(documentsContext.getRootDocument(), fieldValues, facetHierarchyPaths);
     } else {
       List<Map<String, Object>> fieldValueMaps = new ArrayList<>();
-      fieldValues.stream().map(e -> gson.fromJson(e, Map.class)).forEach(fieldValueMaps::add);
+      fieldValues.stream().map(e -> GSON.fromJson(e, Map.class)).forEach(fieldValueMaps::add);
 
       List<Document> childDocuments =
           fieldValueMaps.stream()
@@ -102,7 +115,7 @@ public class ObjectFieldDef extends IndexableFieldDef<Struct> {
   public void parseFieldWithChildren(
       Document document, List<String> fieldValues, List<List<String>> facetHierarchyPaths) {
     List<Map<String, Object>> fieldValueMaps = new ArrayList<>();
-    fieldValues.stream().map(e -> gson.fromJson(e, Map.class)).forEach(fieldValueMaps::add);
+    fieldValues.stream().map(e -> GSON.fromJson(e, Map.class)).forEach(fieldValueMaps::add);
     if (isStored()) {
       for (String fieldValue : fieldValues) {
         document.add(new StoredField(this.getName(), jsonToStruct(fieldValue).toByteArray()));
@@ -147,7 +160,7 @@ public class ObjectFieldDef extends IndexableFieldDef<Struct> {
             if (childValue instanceof List) {
               for (Object e : (List<Object>) childValue) {
                 if (e instanceof List || e instanceof Map) {
-                  childrenValues.add(gson.toJson(e));
+                  childrenValues.add(GSON.toJson(e));
                 } else {
                   childrenValues.add(String.valueOf(e));
                 }

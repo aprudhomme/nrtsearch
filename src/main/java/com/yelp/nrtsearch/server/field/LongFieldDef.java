@@ -38,7 +38,15 @@ public class LongFieldDef extends NumberFieldDef<Long> {
 
   public LongFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, LONG_PARSER, context, Long.class);
+    this(name, requestField, context, null);
+  }
+
+  public LongFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      LongFieldDef previousField) {
+    super(name, requestField, LONG_PARSER, context, Long.class, previousField);
   }
 
   @Override
@@ -95,6 +103,12 @@ public class LongFieldDef extends NumberFieldDef<Long> {
   @Override
   public String getType() {
     return "LONG";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new LongFieldDef(name, requestField, context, this);
   }
 
   @Override

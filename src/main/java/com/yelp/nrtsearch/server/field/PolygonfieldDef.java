@@ -40,7 +40,15 @@ public class PolygonfieldDef extends IndexableFieldDef<Struct> implements Polygo
 
   protected PolygonfieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context, Struct.class);
+    this(name, requestField, context, null);
+  }
+
+  protected PolygonfieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      PolygonfieldDef previousField) {
+    super(name, requestField, context, Struct.class, previousField);
   }
 
   @Override
@@ -95,6 +103,12 @@ public class PolygonfieldDef extends IndexableFieldDef<Struct> implements Polygo
   @Override
   public String getType() {
     return "POLYGON";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new PolygonfieldDef(name, requestField, context, this);
   }
 
   @Override

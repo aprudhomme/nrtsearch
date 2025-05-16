@@ -40,7 +40,16 @@ public class TextFieldDef extends TextBaseFieldDef implements PrefixQueryable {
 
   public TextFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context);
+    this(name, requestField, context, null);
+  }
+
+  public TextFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      TextFieldDef previousField) {
+    super(name, requestField, context, previousField);
+
     if (requestField.hasIndexPrefixes()) {
       verifySearchable("Prefix query");
       int minChars =
@@ -65,7 +74,10 @@ public class TextFieldDef extends TextBaseFieldDef implements PrefixQueryable {
         prefixFieldBuilder.setIndexAnalyzer(requestField.getIndexAnalyzer());
       }
 
-      this.prefixFieldDef = new PrefixFieldDef(getName(), prefixFieldBuilder.build(), context);
+      PrefixFieldDef previousPrefixField =
+          previousField != null ? previousField.getPrefixFieldDef() : null;
+      this.prefixFieldDef =
+          new PrefixFieldDef(getName(), prefixFieldBuilder.build(), context, previousPrefixField);
 
       Map<String, IndexableFieldDef<?>> childFieldsMap = new HashMap<>(super.getChildFields());
       childFieldsMap.put(prefixFieldDef.getName(), prefixFieldDef);
@@ -84,6 +96,12 @@ public class TextFieldDef extends TextBaseFieldDef implements PrefixQueryable {
   @Override
   public String getType() {
     return "TEXT";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new TextFieldDef(name, requestField, context, this);
   }
 
   @Override

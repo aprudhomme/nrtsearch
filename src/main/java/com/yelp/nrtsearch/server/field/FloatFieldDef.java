@@ -39,7 +39,15 @@ public class FloatFieldDef extends NumberFieldDef<Float> {
 
   public FloatFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, FLOAT_PARSER, context, Float.class);
+    this(name, requestField, context, null);
+  }
+
+  public FloatFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      FloatFieldDef previousField) {
+    super(name, requestField, FLOAT_PARSER, context, Float.class, previousField);
   }
 
   @Override
@@ -97,6 +105,12 @@ public class FloatFieldDef extends NumberFieldDef<Float> {
   @Override
   public String getType() {
     return "FLOAT";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new FloatFieldDef(name, requestField, context, this);
   }
 
   @Override

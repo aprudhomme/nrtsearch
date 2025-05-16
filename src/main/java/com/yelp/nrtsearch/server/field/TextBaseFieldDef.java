@@ -60,14 +60,14 @@ public abstract class TextBaseFieldDef extends IndexableFieldDef<String>
   private final Analyzer searchAnalyzer;
   private final boolean eagerFieldGlobalOrdinals;
 
-  public final Map<IndexReader.CacheKey, GlobalOrdinalLookup> ordinalLookupCache = new HashMap<>();
-  private final Object ordinalBuilderLock = new Object();
+  public final Map<IndexReader.CacheKey, GlobalOrdinalLookup> ordinalLookupCache;
+  private final Object ordinalBuilderLock;
   private final int ignoreAbove;
 
   /**
    * Field constructor. Uses {@link IndexableFieldDef#IndexableFieldDef(String, Field,
-   * FieldDefCreator.FieldDefCreatorContext, Class)} to do common initialization, then sets up
-   * analyzers. Analyzers are parsed through calls to the protected methods {@link
+   * FieldDefCreator.FieldDefCreatorContext, Class, IndexableFieldDef)} to do common initialization,
+   * then sets up analyzers. Analyzers are parsed through calls to the protected methods {@link
    * #parseIndexAnalyzer(Field)} and {@link #parseSearchAnalyzer(Field)}.
    *
    * @param name field name
@@ -75,8 +75,22 @@ public abstract class TextBaseFieldDef extends IndexableFieldDef<String>
    * @param context creation context
    */
   protected TextBaseFieldDef(
-      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context, String.class);
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      TextBaseFieldDef previousField) {
+    super(name, requestField, context, String.class, previousField);
+
+    // If the previous field exists, we need to copy the ordinal lookup cache and lock from it
+    // since it is a shared resource.
+    if (previousField != null) {
+      ordinalLookupCache = previousField.ordinalLookupCache;
+      ordinalBuilderLock = previousField.ordinalBuilderLock;
+    } else {
+      ordinalLookupCache = new HashMap<>();
+      ordinalBuilderLock = new Object();
+    }
+
     indexAnalyzer = parseIndexAnalyzer(requestField);
     searchAnalyzer = parseSearchAnalyzer(requestField);
     eagerFieldGlobalOrdinals = requestField.getEagerFieldGlobalOrdinals();

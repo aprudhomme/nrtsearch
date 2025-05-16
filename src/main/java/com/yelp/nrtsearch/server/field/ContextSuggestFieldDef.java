@@ -41,7 +41,15 @@ public class ContextSuggestFieldDef extends IndexableFieldDef<Void> {
    */
   protected ContextSuggestFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context, Void.class);
+    this(name, requestField, context, null);
+  }
+
+  protected ContextSuggestFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      ContextSuggestFieldDef previousField) {
+    super(name, requestField, context, Void.class, previousField);
     this.indexAnalyzer = this.parseIndexAnalyzer(requestField);
     this.searchAnalyzer = this.parseSearchAnalyzer(requestField);
     this.postingsFormat =
@@ -62,6 +70,12 @@ public class ContextSuggestFieldDef extends IndexableFieldDef<Void> {
   @Override
   public String getType() {
     return "CONTEXT_SUGGEST";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new ContextSuggestFieldDef(name, requestField, context, this);
   }
 
   @Override

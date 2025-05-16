@@ -43,7 +43,15 @@ public class IdFieldDef extends IndexableFieldDef<String> implements TermQueryab
 
   protected IdFieldDef(
       String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(name, requestField, context, String.class);
+    this(name, requestField, context, null);
+  }
+
+  protected IdFieldDef(
+      String name,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      IdFieldDef previousField) {
+    super(name, requestField, context, String.class, previousField);
   }
 
   /**
@@ -140,6 +148,12 @@ public class IdFieldDef extends IndexableFieldDef<String> implements TermQueryab
   @Override
   public String getType() {
     return "_ID";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new IdFieldDef(name, requestField, context, this);
   }
 
   /**

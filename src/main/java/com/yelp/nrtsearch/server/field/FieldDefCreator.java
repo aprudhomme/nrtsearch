@@ -97,6 +97,19 @@ public class FieldDefCreator {
     return provider.get(name, field, context);
   }
 
+  public FieldDef createFieldDefFromPrevious(
+      String name, Field field, FieldDef previousFieldDef, FieldDefCreatorContext context) {
+    if (previousFieldDef == null) {
+      return createFieldDef(name, field, context);
+    }
+    FieldDef updatedFieldDef = previousFieldDef.createUpdatedFieldDef(name, field, context);
+    if (updatedFieldDef == null) {
+      throw new IllegalArgumentException(
+          "FieldDef " + previousFieldDef.getName() + " cannot be updated");
+    }
+    return updatedFieldDef;
+  }
+
   /**
    * Create a new {@link FieldDefCreatorContext} instance.
    *

@@ -38,7 +38,15 @@ public class PrefixFieldDef extends TextBaseFieldDef {
 
   public PrefixFieldDef(
       String parentName, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
-    super(parentName + INDEX_PREFIX, requestField, context);
+    this(parentName, requestField, context, null);
+  }
+
+  public PrefixFieldDef(
+      String parentName,
+      Field requestField,
+      FieldDefCreator.FieldDefCreatorContext context,
+      PrefixFieldDef previousField) {
+    super(parentName + INDEX_PREFIX, requestField, context, previousField);
     this.minChars = requestField.getIndexPrefixes().getMinChars();
     this.maxChars = requestField.getIndexPrefixes().getMaxChars();
     this.parentField = parentName;
@@ -89,6 +97,12 @@ public class PrefixFieldDef extends TextBaseFieldDef {
   @Override
   public String getType() {
     return "PREFIX";
+  }
+
+  @Override
+  public FieldDef createUpdatedFieldDef(
+      String name, Field requestField, FieldDefCreator.FieldDefCreatorContext context) {
+    return new PrefixFieldDef(name, requestField, context, this);
   }
 
   public int getMinChars() {
