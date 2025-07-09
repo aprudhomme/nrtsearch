@@ -99,6 +99,10 @@ public class RecvRawFileV2Handler extends Handler<FileInfo, RawFileChunk> {
                     .build();
             responseObserver.onNext(rawFileChunk);
             fileOffset += chunkSize;
+            logger.info(
+                String.format(
+                    "recvRawFileV2: file: %s, sent chunk %d, size %d, fileOffset %d, fileLength %d",
+                    fileName, currentSeq, chunkSize, fileOffset, fileLength));
             if (fileOffset == fileLength) {
               logger.info("Finished reading file: {}, {}", fileName, luceneFile);
               responseObserver.onCompleted();
