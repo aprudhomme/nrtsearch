@@ -16,6 +16,7 @@
 package com.yelp.nrtsearch.tools.nrt_utils;
 
 import com.yelp.nrtsearch.tools.nrt_utils.backup.CleanupSnapshotsCommand;
+import com.yelp.nrtsearch.tools.nrt_utils.backup.CompressSnapshotCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.backup.ListSnapshotsCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.backup.RestoreCommand;
 import com.yelp.nrtsearch.tools.nrt_utils.backup.SnapshotCommand;
@@ -39,6 +40,7 @@ import picocli.CommandLine;
     subcommands = {
       CleanupDataCommand.class,
       CleanupSnapshotsCommand.class,
+      CompressSnapshotCommand.class,
       DeleteIncrementalSnapshotsCommand.class,
       GetRemoteStateCommand.class,
       GetResourceVersionCommand.class,
