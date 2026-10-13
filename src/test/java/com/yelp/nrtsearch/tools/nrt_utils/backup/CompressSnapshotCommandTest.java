@@ -28,6 +28,7 @@ import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yelp.nrtsearch.server.config.IndexStartConfig.IndexDataLocationType;
+import com.yelp.nrtsearch.server.config.NrtsearchConfig;
 import com.yelp.nrtsearch.server.grpc.CreateIndexRequest;
 import com.yelp.nrtsearch.server.grpc.Mode;
 import com.yelp.nrtsearch.server.grpc.RestoreIndex;
@@ -35,6 +36,7 @@ import com.yelp.nrtsearch.server.grpc.TestServer;
 import com.yelp.nrtsearch.server.nrt.state.NrtFileMetaData;
 import com.yelp.nrtsearch.server.nrt.state.NrtPointState;
 import com.yelp.nrtsearch.server.remote.FileCompressor;
+import com.yelp.nrtsearch.server.remote.FileCompressorCreator;
 import com.yelp.nrtsearch.server.remote.LZ4FileCompressor;
 import com.yelp.nrtsearch.server.remote.RemoteUtils;
 import com.yelp.nrtsearch.server.remote.ZstdFileCompressor;
@@ -54,6 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.io.IOUtils;
 import org.junit.After;
 import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -76,6 +79,13 @@ public class CompressSnapshotCommandTest {
   private static final String DEST_ROOT = "compressed/snapshots";
 
   @Rule public final TemporaryFolder folder = new TemporaryFolder();
+
+  @BeforeClass
+  public static void setupClass() {
+    // test servers configured with compression need the built-in compressors registered
+    FileCompressorCreator.initialize(
+        new NrtsearchConfig(new ByteArrayInputStream("nodeName: test".getBytes())), List.of());
+  }
 
   @After
   public void cleanup() {

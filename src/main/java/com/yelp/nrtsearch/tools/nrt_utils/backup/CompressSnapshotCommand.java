@@ -196,6 +196,7 @@ public class CompressSnapshotCommand implements Callable<Integer> {
   /** Compression result for a single index file. */
   record FileResult(
       String fileName,
+      String luceneFileName,
       long uncompressedBytes,
       long compressedBytes,
       long compressNanos,
@@ -378,6 +379,7 @@ public class CompressSnapshotCommand implements Callable<Integer> {
     FileResult result =
         new FileResult(
             backendFileName,
+            fileName,
             meta.length,
             compressedBytes,
             timingCompressor.compressNanos,
@@ -403,19 +405,12 @@ public class CompressSnapshotCommand implements Callable<Integer> {
     if (meta.compressionType == null) {
       return source;
     }
-    FileCompressor sourceCompressor =
-        switch (meta.compressionType) {
-          case "LZ4" -> new LZ4FileCompressor();
-          case "ZSTD" ->
-              new ZstdFileCompressor(
-                  ZstdFileCompressor.DEFAULT_LEVEL, ZstdFileCompressor.DEFAULT_WORKERS);
-          default -> {
-            source.close();
-            throw new IllegalArgumentException(
-                "Unsupported source compression type: " + meta.compressionType);
-          }
-        };
-    return sourceCompressor.decompressStream(source);
+    try {
+      return CompressionCommandUtils.getDecompressor(meta.compressionType).decompressStream(source);
+    } catch (IOException | RuntimeException e) {
+      source.close();
+      throw e;
+    }
   }
 
   /**
@@ -499,10 +494,21 @@ public class CompressSnapshotCommand implements Callable<Integer> {
         String.format(
             "  wall time: %.3f s, %.1f MB/s overall",
             wallSeconds, wallSeconds == 0 ? 0.0 : totalUncompressed / wallSeconds / (1024 * 1024)));
+    CompressionCommandUtils.printFileTypeSummary(
+        results.stream()
+            .map(
+                r ->
+                    new CompressionCommandUtils.FileStats(
+                        r.luceneFileName(),
+                        r.uncompressedBytes(),
+                        r.compressedBytes(),
+                        r.compressNanos()))
+            .toList(),
+        "compress");
   }
 
   private static double ratio(long uncompressed, long compressed) {
-    return compressed == 0 ? 0.0 : (double) uncompressed / compressed;
+    return CompressionCommandUtils.ratio(uncompressed, compressed);
   }
 
   private void checkDestNotExists(S3Client s3Client, String destDataRoot, String destMetadataKey) {
