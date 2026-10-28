@@ -24,6 +24,7 @@ import com.yelp.nrtsearch.server.index.ShardState;
 import com.yelp.nrtsearch.server.state.GlobalState;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
+import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.slf4j.Logger;
@@ -42,7 +43,8 @@ public class RecvRawFileV2Handler extends Handler<FileInfo, RawFileChunk> {
   public StreamObserver<FileInfo> handle(StreamObserver<RawFileChunk> responseObserver) {
     return new StreamObserver<>() {
       private IndexState indexState;
-      private IndexInput luceneFile;
+      private Directory indexDir;
+      private String fileName;
       private byte[] buffer;
       private final int ackEvery =
           getGlobalState().getConfiguration().getFileCopyConfig().getAckEvery();
@@ -52,6 +54,7 @@ public class RecvRawFileV2Handler extends Handler<FileInfo, RawFileChunk> {
       private int currentSeq = 0;
       private long fileOffset;
       private long fileLength;
+      private boolean done;
 
       @Override
       public void onNext(FileInfo fileInfoRequest) {
@@ -69,11 +72,9 @@ public class RecvRawFileV2Handler extends Handler<FileInfo, RawFileChunk> {
               throw new IllegalStateException(
                   "Error getting shard state for: " + fileInfoRequest.getIndexName());
             }
-            luceneFile =
-                shardState.indexDir.openInput(fileInfoRequest.getFileName(), IOContext.DEFAULT);
-            luceneFile.seek(fileInfoRequest.getFpStart());
+            indexDir = shardState.indexDir;
+            fileName = fileInfoRequest.getFileName();
             fileOffset = fileInfoRequest.getFpStart();
-            fileLength = luceneFile.length();
             buffer =
                 new byte[getGlobalState().getConfiguration().getFileCopyConfig().getChunkSize()];
           } else {
@@ -84,6 +85,28 @@ public class RecvRawFileV2Handler extends Handler<FileInfo, RawFileChunk> {
                   "Invalid ackSeqNum: " + fileInfoRequest.getAckSeqNum());
             }
           }
+          sendChunks();
+          logger.debug(
+              String.format("recvRawFileV2: in flight chunks: %d", currentSeq - lastAckedSeq));
+        } catch (Throwable t) {
+          responseObserver.onError(t);
+          throw new RuntimeException(t);
+        }
+      }
+
+      /**
+       * Send chunks until the file is complete or the max in flight limit is reached. The file is
+       * opened with READONCE and closed before returning, since subsequent calls may happen on a
+       * different thread. Inputs opened with other contexts are mapped into the segment's shared
+       * Arena by MMapDirectory, and are not unmapped until all segment files are closed.
+       */
+      private void sendChunks() throws IOException {
+        if (done || (currentSeq - lastAckedSeq) >= maxInflight) {
+          return;
+        }
+        try (IndexInput luceneFile = indexDir.openInput(fileName, IOContext.READONCE)) {
+          fileLength = luceneFile.length();
+          luceneFile.seek(fileOffset);
           while (fileOffset < fileLength && (currentSeq - lastAckedSeq) < maxInflight) {
             int chunkSize = (int) Math.min(buffer.length, (fileLength - fileOffset));
             luceneFile.readBytes(buffer, 0, chunkSize);
@@ -96,42 +119,23 @@ public class RecvRawFileV2Handler extends Handler<FileInfo, RawFileChunk> {
                     .build();
             responseObserver.onNext(rawFileChunk);
             fileOffset += chunkSize;
-            if (fileOffset == fileLength) {
-              maybeCloseFile();
-              responseObserver.onCompleted();
-            }
           }
-          logger.debug(
-              String.format("recvRawFileV2: in flight chunks: %d", currentSeq - lastAckedSeq));
-        } catch (Throwable t) {
-          maybeCloseFile();
-          responseObserver.onError(t);
-          throw new RuntimeException(t);
+        }
+        if (fileOffset == fileLength) {
+          done = true;
+          responseObserver.onCompleted();
         }
       }
 
       @Override
       public void onError(Throwable t) {
         logger.error("recvRawFileV2 onError", t);
-        maybeCloseFile();
         responseObserver.onError(t);
       }
 
       @Override
       public void onCompleted() {
-        maybeCloseFile();
         logger.debug("recvRawFileV2 onCompleted");
-      }
-
-      private void maybeCloseFile() {
-        if (luceneFile != null) {
-          try {
-            luceneFile.close();
-          } catch (IOException e) {
-            logger.warn("Error closing index file", e);
-          }
-          luceneFile = null;
-        }
       }
     };
   }
